@@ -27,7 +27,7 @@ namespace Xploit.GameUI.Tests
         }
 
         // Frames the runtime needs to pick up posted scripts and drain their logs.
-        const int SettleFrames = 10;
+        const int SettleFrames = 20;
 
         [UnityTest]
         public IEnumerator ExecuteJS_ConsoleLog_ReachesUnityConsole()
@@ -78,11 +78,13 @@ namespace Xploit.GameUI.Tests
         {
             var first = CreateView("js-first");
             var second = CreateView("js-second");
-            first.ExecuteJS("globalThis.marker = 'first';");
-            LogAssert.Expect(LogType.Log, new Regex("second sees undefined"));
-            second.ExecuteJS("console.log('second sees ' + typeof marker)");
+            // One evaluation per view: chaining three round-trips across two
+            // isolates made this depend on how much work a single frame gets
+            // through, which is not what the test is about.
             LogAssert.Expect(LogType.Log, new Regex("first sees first"));
-            first.ExecuteJS("console.log('first sees ' + marker)");
+            first.ExecuteJS("globalThis.marker = 'first'; console.log('first sees ' + marker);");
+            LogAssert.Expect(LogType.Log, new Regex("second sees undefined"));
+            second.ExecuteJS("console.log('second sees ' + typeof marker);");
             for (int i = 0; i < SettleFrames; i++)
             {
                 yield return null;
