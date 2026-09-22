@@ -1,0 +1,48 @@
+name: Feature request
+description: A CSS property, selector, DOM API or C# API that is missing
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a game UI runtime, not a browser. Some gaps are deliberate, and
+        the [support matrix](https://github.com/Rovniy/xploit_game_ui/blob/main/docs/css-support.md)
+        says which. The strongest case for adding something is a real screen that
+        is hard to build without it.
+
+  - type: textarea
+    id: markup
+    attributes:
+      label: What you want to be able to write
+      description: The markup, stylesheet or API call you reached for and did not find.
+      render: html
+      placeholder: |
+        <ul class="inventory">
+          <li>...</li>
+        </ul>
+
+        .inventory { display: grid; grid-template-columns: repeat(4, 1fr); }
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: The screen you are building
+      description: What the UI actually is — an inventory grid, a settings list, a damage indicator. This is the part that decides priority.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you are doing instead
+      description: The workaround you found, if any, and why it is not good enough.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before filing
+      options:
+        - label: I checked the support matrix and this is not already listed as a deliberate deviation
+          required: true

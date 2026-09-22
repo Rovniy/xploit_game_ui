@@ -11,6 +11,11 @@ CMakeUserPresets.json
 # V8 NuGet packages are fetched at build time
 native/third_party/v8/
 
+# Unity Native Plugin API headers are copied from a local Unity install by
+# tools/fetch-unity-headers.ps1; they belong to Unity and are not redistributed
+# here (see docs/THIRD-PARTY-NOTICES.md).
+native/third_party/unity/
+
 # Unity
 unity/Sandbox/[Ll]ibrary/
 unity/Sandbox/[Tt]emp/
@@ -32,6 +37,13 @@ unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.bin
 native/tests/testdata/golden/*_actual.png
 native/tests/testdata/golden/*_diff.png
 
-# IDE folders
+# Packaged release artifacts
+dist/
+
+# IDE and note-taking folders
 .idea/
 .vscode/
+.obsidian/
+
+# The stage-by-stage working plan is kept outside the public repository.
+docs/PLAN.md

@@ -1,34 +1,35 @@
-# Пример HUD
+# HUD sample
 
-Полный игровой HUD: полоски здоровья и патронов, две кнопки, ожидание ответа от
-игры. Страница решает, как это выглядит; `Hud.cs` решает, что это значит.
+A complete game HUD: a health bar, an ammo counter, two buttons, and a request
+that waits on the game. The page decides how it looks; `Hud.cs` decides what it
+means.
 
-## Установка
+## Setting it up
 
-1. Перенесите папку `StreamingAssets/UI/HUD` в `Assets/StreamingAssets/UI/HUD`
-   вашего проекта. Рантайм читает документы только из `StreamingAssets`, поэтому
-   страница не может добраться до остального диска.
-2. Создайте `Canvas` (Screen Space — Overlay) и внутри него объект с
-   компонентами `RawImage`, `HtmlView` и `WebInput`.
-3. У `HtmlView` укажите **Path (in StreamingAssets)** = `UI/HUD/index.html`
-   и снимите **Draw Test Frame On Enable**.
-4. Добавьте на тот же объект `Hud.cs`.
-5. Убедитесь, что в сцене есть `EventSystem` (Unity добавляет его вместе с
-   Canvas). Инспектор предупредит, если чего-то не хватает.
+1. Move the `StreamingAssets/UI/HUD` folder into your project at
+   `Assets/StreamingAssets/UI/HUD`. The runtime only reads documents from
+   `StreamingAssets`, so the page cannot reach the rest of the disk.
+2. Create a `Canvas` (Screen Space — Overlay) and, inside it, an object with a
+   `RawImage`, an `HtmlView` and a `WebInput`.
+3. On the `HtmlView`, set **Path (in StreamingAssets)** to `UI/HUD/index.html`
+   and clear **Draw Test Frame On Enable**.
+4. Add `Hud.cs` to the same object.
+5. Make sure the scene has an `EventSystem` — Unity adds one along with the
+   Canvas. The inspector warns you if something is missing.
 
-## Что куда ходит
+## What crosses the bridge
 
-| Направление | Имя | Смысл |
+| Direction | Name | Meaning |
 |---|---|---|
-| игра → страница | `healthChanged` | новое здоровье, число 0…100 |
-| игра → страница | `ammoChanged` | новое число патронов |
-| страница → игра | `inventory` | нажата кнопка INVENTORY |
-| страница → игра | `reload` (вызов) | перезарядка; возвращает число досланных патронов или отклоняется с сообщением |
+| game → page | `healthChanged` | the new health, a number from 0 to 100 |
+| game → page | `ammoChanged` | the new round count |
+| page → game | `inventory` | the INVENTORY button was pressed |
+| page → game | `reload` (a call) | reload the weapon; resolves with the number of rounds chambered, or rejects with a reason |
 
-Кнопка RELOAD показывает, ради чего нужен `Unity.call`: страница ждёт, пока
-игра закончит работу, и показывает результат или причину отказа.
+The RELOAD button is the point of `Unity.call`: the page waits for the game to
+finish and then shows either the result or why it was refused.
 
-## Из своего кода
+## From your own code
 
 ```csharp
 var hud = GetComponent<Hud>();

@@ -1,25 +1,28 @@
-# xploit_game_ui — HTML/CSS/JS как игровой интерфейс Unity
+# xploit_game_ui — HTML/CSS/JS as Unity game UI
 
-Пакет рисует документ HTML/CSS/JavaScript в текстуру и отдаёт её обычному
-`RawImage`. Движок собственный: lexbor разбирает HTML, каскад CSS и раскладка на
-Yoga свои, текст и растеризация — Skia, скрипты — V8. Ни Gameface, ни Ultralight,
-ни встроенного браузера.
+This package paints an HTML/CSS/JavaScript document into a texture and hands it
+to an ordinary `RawImage`. The engine is our own: lexbor parses the HTML, the CSS
+cascade and the Yoga layout are ours, Skia does text and rasterising, and V8 runs
+the scripts. No Gameface, no Ultralight, no embedded browser.
 
-## Требования
+Full documentation: <https://github.com/Rovniy/xploit_game_ui>
 
-- Unity 6000.2 или новее, Windows x64.
-- Графический API **Direct3D 12** для аппаратного пути. На D3D11 и в
-  `-nographics` пакет автоматически переключается на программный провайдер.
+## Requirements
 
-## За пять минут
+- Unity 6000.2 or newer, Windows x64.
+- **Direct3D 12** for the hardware path. On D3D11 and under `-nographics` the
+  package falls back to a software provider automatically.
 
-1. Положите страницу в `Assets/StreamingAssets/UI/MainMenu/index.html`. Всё, что
-   она грузит, должно лежать внутри `StreamingAssets`: выход за эту границу
-   рантайм отклоняет.
-2. На `Canvas` создайте объект с `RawImage`, добавьте `HtmlView` и `WebInput`.
-3. В инспекторе `HtmlView` укажите путь `UI/MainMenu/index.html` и снимите
-   галочку **Draw Test Frame On Enable**.
-4. Запустите сцену.
+## Five minutes
+
+1. Put your page at `Assets/StreamingAssets/UI/MainMenu/index.html`. Everything
+   it loads has to live inside `StreamingAssets`; the runtime rejects any path
+   that leaves it.
+2. On a `Canvas`, create an object with a `RawImage` and add `HtmlView` and
+   `WebInput` to it.
+3. In the `HtmlView` inspector set the path to `UI/MainMenu/index.html` and clear
+   **Draw Test Frame On Enable**.
+4. Press Play.
 
 ```csharp
 public sealed class Menu : MonoBehaviour
@@ -28,32 +31,32 @@ public sealed class Menu : MonoBehaviour
 
     void OnEnable()
     {
-        view.On("play", _ => StartGame());              // страница: Unity.emit("play")
-        view.RegisterFunction("getBestScore", _ => 42); // страница: await Unity.call("getBestScore")
-        view.JsReady += v => v.Send("healthChanged", 100); // страница: Unity.on("healthChanged", ...)
+        view.On("play", _ => StartGame());              // page: Unity.emit("play")
+        view.RegisterFunction("getBestScore", _ => 42); // page: await Unity.call("getBestScore")
+        view.JsReady += v => v.Send("healthChanged", 100); // page: Unity.on("healthChanged", ...)
     }
 }
 ```
 
-Готовый пример целиком — **Samples → HUD** в окне Package Manager.
+A complete worked example ships as **Samples → HUD** in the Package Manager.
 
-## Что есть в API
+## The API
 
-| Тип | Назначение |
+| Type | What it is for |
 |---|---|
-| `HtmlView` | одно представление: загрузка, состояние, текстура, мост, ввод |
-| `HtmlViewManager` | один на процесс: инициализация рантайма, кадр, вычитка логов |
-| `WebInput` | ввод Unity → документ через события uGUI и клавиатуру |
-| `WebEvent`, `WebArguments`, `WebValue` | то, что пришло из страницы |
-| `WebJson` | сериализация и разбор полезной нагрузки моста |
-| `WebLogMessage` | строка от рантайма с уровнем и виновным представлением |
-| `WebTexture` | текстура представления и её пересоздание при resize |
+| `HtmlView` | one view: loading, state, the texture, the bridge, input |
+| `HtmlViewManager` | one per process: runtime start-up, the frame, draining logs |
+| `WebInput` | Unity input → the document, through uGUI events and the keyboard |
+| `WebEvent`, `WebArguments`, `WebValue` | what arrived from the page |
+| `WebJson` | serialising and parsing bridge payloads |
+| `WebLogMessage` | a line from the runtime, with its level and the view that produced it |
+| `WebTexture` | the view's texture and its recreation on resize |
 
 ### HtmlView
 
 ```csharp
-view.Load("UI/MainMenu/index.html");   // относительно StreamingAssets
-view.LoadHtml("<b>привет</b>");        // разметка из памяти
+view.Load("UI/MainMenu/index.html");   // relative to StreamingAssets
+view.LoadHtml("<b>hello</b>");         // markup from memory
 view.Reload();
 view.ExecuteJS("console.log(document.title)");
 
@@ -66,25 +69,29 @@ view.SendInput(WebInputEvent.Mouse(WebInputType.MouseDown, point));
 view.SetFocus("search");
 view.Resize(1280, 720);
 
-view.DomReady    += v => { };   // DOM построен, скрипты ещё не выполнялись
-view.JsReady     += v => { };   // скрипты выполнены
-view.Interactive += v => { };   // первый кадр отрисован
-view.Log         += m => { };   // console.* и ошибки этой страницы
+view.DomReady    += v => { };   // the DOM is built, no script has run yet
+view.JsReady     += v => { };   // scripts have run
+view.Interactive += v => { };   // the first frame has been painted
+view.Log         += m => { };   // console.* and errors from this page
 ```
 
-### Логи
+### Logs
 
-Всё, что печатает страница, по умолчанию уходит в Unity Console. Чтобы увести
-вывод в свою консоль, подпишитесь на `HtmlViewManager.Log` и включите
+Everything the page prints goes to the Unity Console by default. To route it into
+your own console instead, subscribe to `HtmlViewManager.Log` and set
 `HtmlViewManager.SuppressConsoleOutput`.
 
-## Границы
+## Limits
 
-Поддержка HTML, CSS и DOM сознательно ограничена тем, что нужно игровому
-интерфейсу. Полная матрица и список отличий от браузера — в `docs/css-support.md`
-репозитория. Коротко о главном:
+HTML, CSS and DOM support is deliberately scoped to what game UI needs. The full
+matrix, and every documented difference from a browser, is in
+[docs/css-support.md](https://github.com/Rovniy/xploit_game_ui/blob/main/docs/css-support.md).
+The short version:
 
-- нет grid, float, transition и animation; есть flexbox, block и inline;
-- нет сети: `fetch`, `XMLHttpRequest` и модули ES недоступны;
-- JavaScript не может читать файлы и не может вызвать native-код иначе, чем
-  через явно зарегистрированные функции моста.
+- flexbox, block and inline are there; **CSS grid, `float`, `calc()`, custom
+  properties and `@media` are not**;
+- `transition`, `@keyframes` and `animation` work, as do gradients, shadows and
+  transforms;
+- there is no network — `fetch`, `XMLHttpRequest` and ES modules do not exist;
+- JavaScript cannot read files, and cannot reach native code except through the
+  bridge functions you register explicitly.

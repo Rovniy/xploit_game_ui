@@ -1,47 +1,47 @@
-# Модель потоков xploit_game_ui
+# xploit_game_ui threading model
 
-## Потоки
+## Threads
 
-| Поток | Владелец | Что делает | Что запрещено |
+| Thread | Owner | What it does | What it must not do |
 |---|---|---|---|
-| Главный поток Unity | Unity | C# API `HtmlView`; подача ввода (`WebInput`); `HtmlViewManager.Update()` вызывает `xgu_view_tick`, вычитывает очередь native→C# (`xgu_view_poll_message`) и вызывает пользовательские обработчики; создаёт внешние текстуры | Ничего тяжёлого: никакого layout/JS здесь |
-| Runtime-поток | `xploit_game_ui.dll`, один на процесс | Для каждого view за кадр: входящие сообщения → ввод → DOM-события → таймеры/rAF → microtask checkpoint V8 → style → layout → paint → публикация `DisplayList` | Вызовы Unity API; обращения к `GrDirectContext` |
-| Submission-поток Unity | Unity (плагинное событие `XGU_EVT_PAINT`, режим `kUnityD3D12GraphicsQueueAccess_Allow`) | Создание `GrDirectContext` (лениво), проигрывание `SkPicture` в surface, `flush(kPresent)`, `submit`, отложенное освобождение GPU-ресурсов по frame fence | Всё, кроме работы со Skia GPU и D3D12 |
-| Пул воркеров | runtime | Декодирование изображений (`SkCodec` → растровый `SkImage`) | Обращения к DOM |
+| Unity main thread | Unity | The C# `HtmlView` API; feeding input (`WebInput`); `HtmlViewManager.Update()` ticks each view (`xgu_view_tick`), drains the native→C# queue (`xgu_view_poll_message`) and calls user handlers; creates external textures | Anything heavy — no layout and no JavaScript here |
+| Runtime thread | `xploit_game_ui.dll`, one per process | Per view, per frame: incoming messages → input → DOM events → timers and `requestAnimationFrame` → V8 microtask checkpoint → style → layout → paint → publish a `DisplayList` | Calling the Unity API; touching `GrDirectContext` |
+| Unity submission thread | Unity (plugin event `XGU_EVT_PAINT`, mode `kUnityD3D12GraphicsQueueAccess_Allow`) | Creates `GrDirectContext` lazily, replays the `SkPicture` into the surface, `flush(kPresent)`, `submit`, and releases deferred GPU resources once the frame fence passes | Anything other than Skia GPU work and D3D12 |
+| Worker pool | the runtime | Image decoding (`SkCodec` → raster `SkImage`) | Touching the DOM |
 
-«JavaScript thread» из ТЗ совпадает с runtime-потоком: DOM API должны быть синхронными из JS, поэтому изолят V8 (один на view) входит только в этом потоке.
+The "JavaScript thread" is the runtime thread: the DOM API has to be synchronous from script, so the V8 isolate — one per view — is only ever entered there.
 
-## Что пересекает границы потоков
+## What crosses a thread boundary
 
-- **Главный → runtime:** `BridgeMessage` (Send/Reply/ExecuteJS/Load/Resize), `XguInputEvent`, `tick`. Очереди под мьютексом (`std::deque`), с коалесцированием `MouseMove`.
-- **Runtime → главный:** `BridgeMessage` (Emit/Call/Log/Lifecycle). Очередь ограничена 10k сообщений: при переполнении отбрасываются самые старые `Emit`/`Log`, но никогда `Call`/`Reply`.
-- **Runtime → submission:** `DisplayList{ sk_sp<SkPicture>, dirtyRect, frameId }` — неизменяемый объект в слоте «последний выигрывает» (один слот на view). `SkPicture` refcounted, поэтому потерянный (не показанный) кадр освобождается бесплатно.
-- **Submission → главный:** только флаги статуса (`xgu_view_status`: `TEXTURE_READY`, `TEXTURE_RECREATED`, `DEVICE_LOST`, `PIXELS_READY`) и указатель на нативную текстуру; C# опрашивает их в `Update()`.
+- **Main → runtime:** `BridgeMessage` (Send/Reply/ExecuteJS/Load/Resize), `XguInputEvent`, `tick`. Mutex-guarded `std::deque` queues, with `MouseMove` coalesced.
+- **Runtime → main:** `BridgeMessage` (Emit/Call/Log/Lifecycle). The queue is capped at 10k messages; on overflow the oldest `Emit` and `Log` messages are dropped, never `Call` or `Reply`.
+- **Runtime → submission:** `DisplayList{ sk_sp<SkPicture>, dirtyRect, frameId }`, an immutable object in a last-one-wins slot, one slot per view. `SkPicture` is reference counted, so a frame that is superseded before it is shown costs nothing to drop.
+- **Submission → main:** status flags only (`xgu_view_status`: `TEXTURE_READY`, `TEXTURE_RECREATED`, `DEVICE_LOST`, `PIXELS_READY`) plus the native texture pointer, which C# polls in `Update()`.
 
-Ничего другого границы не пересекает: узлы DOM, `ComputedStyle`, `LayoutBox`, объекты V8 живут только в runtime-потоке.
+Nothing else crosses: DOM nodes, `ComputedStyle`, `LayoutBox` and every V8 object live on the runtime thread alone.
 
-## Темп кадров
+## Frame pacing
 
-Runtime-поток спит на condition variable и пробуждается по `xgu_view_tick(view, time)` из `Update()` Unity либо по появлению сообщений. Один тик — один кадр runtime для этого view; несколько тиков до обработки коалесцируются. На чистом кадре (нет dirty-битов, таймеров и rAF) `DisplayList` не публикуется, и C# не выставляет плагинное событие (`xgu_view_has_pending_frame` возвращает 0).
+The runtime thread sleeps on a condition variable and wakes on `xgu_view_tick(view, time)` from Unity's `Update()`, or when a message arrives. One tick is one runtime frame for that view, and several ticks that arrive before the thread runs are coalesced. On a clean frame — no dirty bits, no timers, no running animation — no `DisplayList` is published and C# issues no plugin event, because `xgu_view_has_pending_frame` returns 0.
 
-## Жизненный цикл
+## Lifecycle
 
 ```
 Create → Initialize → Load → DOM Ready → JS Ready → Interactive ⇄ Pause/Resume → Reload → Dispose
 ```
 
-- `Create`/`Initialize`: `xgu_view_create` регистрирует view (id с поколением), выделяет изолят V8 при первом `Load`.
-- `Load`: чтение HTML через `IAssetLoader`, парсинг, применение UA- и авторских стилей, `DOMContentLoaded` (**DOM Ready**), исполнение `<script>` в порядке документа, событие `load` (**JS Ready**), затем первый layout/paint → **Interactive**.
-- `Pause`: ввод и тики игнорируются, таймеры замораживаются; `Resume` продолжает с сохранённым временем.
-- `Reload`: полный `Dispose` внутреннего состояния view (изолят включительно) и повторный `Load`; id view сохраняется.
-- `Dispose` (`xgu_view_destroy`): главный поток помечает view как уничтожаемый → runtime-поток заканчивает текущий кадр, сбрасывает все `v8::Global`, освобождает контекст и изолят, DOM/layout/paint → submission-поток при следующем событии откладывает GPU-ресурсы в список с тегом `GetNextFrameFenceValue()` и освобождает их, когда `GetFrameFence()->GetCompletedValue()` догоняет тег. Поколение id инкрементируется, поэтому «висящие» события с старым id игнорируются.
-- **Domain reload в редакторе:** `HtmlViewManager` вызывает `xgu_views_destroy_all()` в `AssemblyReloadEvents.beforeAssemblyReload`; DLL и платформа V8 остаются загруженными; view пересоздаются после перезагрузки.
-- **Потеря устройства (`isDeviceLost`, `DXGI_ERROR_DEVICE_REMOVED`) и `kUnityGfxDeviceEventBeforeReset`:** контекст Skia бросается (`releaseResourcesAndAbandonContext`), все view получают `DEVICE_LOST`; C# пересоздаёт view.
+- `Create`/`Initialize`: `xgu_view_create` registers the view under a generation-tagged id and allocates the V8 isolate on the first `Load`.
+- `Load`: read the HTML through `IAssetLoader`, parse it, apply the user-agent and author stylesheets, fire `DOMContentLoaded` (**DOM Ready**), run `<script>` elements in document order, fire `load` (**JS Ready**), then the first layout and paint reach **Interactive**.
+- `Pause`: input and ticks are ignored and timers freeze; `Resume` continues from the stored time.
+- `Reload`: disposes the view's internal state, isolate included, and loads again. The view id survives.
+- `Dispose` (`xgu_view_destroy`): the main thread marks the view for destruction; the runtime thread finishes the frame in flight, drops every `v8::Global`, releases the context and isolate, then the DOM, layout and paint state; at the next plugin event the submission thread parks the GPU resources in a list tagged with `GetNextFrameFenceValue()` and frees them once `GetFrameFence()->GetCompletedValue()` catches up. The id's generation is bumped, so a plugin event still carrying the old id is ignored.
+- **Editor domain reload:** `HtmlViewManager` calls `xgu_views_destroy_all()` from `AssemblyReloadEvents.beforeAssemblyReload`. The DLL and the V8 platform stay loaded, and views are recreated afterwards.
+- **Device loss** (`isDeviceLost`, `DXGI_ERROR_DEVICE_REMOVED`) and `kUnityGfxDeviceEventBeforeReset`: the Skia context is abandoned (`releaseResourcesAndAbandonContext`), every view reports `DEVICE_LOST`, and C# recreates them.
 
-## Правила для кода
+## Rules for contributors
 
-1. Любая функция C ABI документирует поток, из которого её можно вызывать; по умолчанию — главный поток Unity.
-2. Колбэки в C# (`Action<WebEvent>`, `Func<WebArguments, object>`) вызываются только из `HtmlViewManager.Update()`.
-3. Runtime-поток никогда не блокируется в ожидании GPU; submission-поток никогда не ждёт runtime-поток.
-4. Все обращения к Skia GPU (`GrDirectContext`, `SkSurface` поверх D3D12) — только из submission-потока; растровые `SkImage`/`SkPicture` можно создавать в runtime-потоке.
-5. Тесты (`xgu_tests`, `xgu_cli`) запускают runtime в «однопоточном режиме» (тик выполняется синхронно в вызывающем потоке) — это тот же код, без отдельного потока.
+1. Every C ABI function documents which thread may call it. The default is the Unity main thread.
+2. C# callbacks (`Action<WebEvent>`, `Func<WebArguments, object>`) only ever run from `HtmlViewManager.Update()`.
+3. The runtime thread never blocks on the GPU, and the submission thread never waits on the runtime thread.
+4. All Skia GPU work — `GrDirectContext`, an `SkSurface` over a D3D12 resource — happens on the submission thread. Raster `SkImage`s and `SkPicture`s may be created on the runtime thread.
+5. `xgu_tests` and `xgu_cli` run the runtime in single-threaded mode, where a tick executes synchronously on the calling thread. It is the same code, without the separate thread.

@@ -169,12 +169,20 @@ xgu_add_v8_runtime_copy(xgu_v8_runtime "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 # ---------------------------------------------------------------------------
 # Unity plugin DLL
 # ---------------------------------------------------------------------------
-if(XGU_BUILD_UNITY_PLUGIN)
+# The Unity headers ship with the editor under the Unity Companion License and
+# are not redistributed here, so the plugin target only exists once they are found.
+include(UnityPluginAPI)
+
+if(XGU_BUILD_UNITY_PLUGIN AND NOT XGU_UNITY_PLUGIN_API_FOUND)
+    message(STATUS "Skipping the Unity plugin DLL: no Unity Native Plugin API headers.")
+endif()
+
+if(XGU_BUILD_UNITY_PLUGIN AND XGU_UNITY_PLUGIN_API_FOUND)
     add_library(xploit_game_ui SHARED
         ${XGU_CAPI_SOURCES}
         src/platform/unity/UnityPlugin.cpp)
     target_compile_definitions(xploit_game_ui PRIVATE XGU_BUILDING_DLL)
-    target_include_directories(xploit_game_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/unity)
+    target_include_directories(xploit_game_ui PRIVATE ${XGU_UNITY_PLUGIN_API_INCLUDE})
     target_link_libraries(xploit_game_ui PRIVATE xgu_runtime)
     add_dependencies(xploit_game_ui xgu_v8_runtime)
     set_target_properties(xploit_game_ui PROPERTIES

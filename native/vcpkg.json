@@ -3,7 +3,7 @@
   "name": "xploit-game-ui",
   "version-string": "0.1.0",
   "description": "HTML/CSS/JS game UI runtime for Unity (native core)",
-  "homepage": "https://github.com/xploit/xploit_game_ui",
+  "homepage": "https://github.com/Rovniy/xploit_game_ui",
   "builtin-baseline": "24a726719eee20d452535529d361ee593c680d6c",
   "dependencies": [
     {

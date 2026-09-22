@@ -15,7 +15,7 @@ class IAssetLoader;
 }
 
 namespace xgu::css {
-class ElementStateProvider;
+struct ElementStateProvider;
 }
 
 namespace xgu::dom {

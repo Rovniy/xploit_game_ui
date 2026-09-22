@@ -12,11 +12,17 @@ PointerAlignment: Left
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^"xploit_game_ui/'
+  # Project headers first, then the public C ABI, then third-party, then the
+  # standard library. Without the '^"' rule below, project includes match nothing
+  # and clang-format sorts them after every angle-bracket include, which fights
+  # the convention used throughout the tree.
+  - Regex: '^"'
     Priority: 1
-  - Regex: '^"xgu/'
+  - Regex: '^<xploit_game_ui/'
     Priority: 2
   - Regex: '^<(include|modules)/'
     Priority: 3
-  - Regex: '^<'
+  - Regex: '^<[^>]+/'
     Priority: 4
+  - Regex: '^<'
+    Priority: 5

@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Verify the tag and open a draft release
+    runs-on: windows-2022
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore the vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: build/vcpkg-cache
+          key: vcpkg-x64-windows-static-md-${{ hashFiles('native/vcpkg.json') }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-x64-windows-static-md-${{ hashFiles('native/vcpkg.json') }}-
+            vcpkg-x64-windows-static-md-
+
+      - name: Check that the tag matches package.json
+        id: version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content unity/Packages/com.xploit.game_ui/package.json -Raw | ConvertFrom-Json
+          $version = $manifest.version
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
+            if ($tag -ne "v$version") {
+              throw "Tag $tag does not match package.json version $version. Bump one of them."
+            }
+          }
+          Write-Host "Releasing $version"
+
+      # The Unity Native Plugin API headers are not redistributed here, so a
+      # GitHub-hosted runner has no Unity and CMake skips xploit_game_ui.dll.
+      # This build still compiles the whole engine and runs all 310 tests, which
+      # is what gates the tag. A runner that does have Unity — a self-hosted one —
+      # produces the DLL and the packaged artifacts as well, and the steps below
+      # upload them automatically when they exist.
+      - name: Build and test
+        shell: pwsh
+        run: |
+          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
+          .\tools\build.ps1
+
+      - name: Package, if the plugin DLL was built
+        id: package
+        shell: pwsh
+        run: |
+          $dll = 'unity/Packages/com.xploit.game_ui/Plugins/x86_64/xploit_game_ui.dll'
+          if (Test-Path $dll) {
+            .\tools\package.ps1
+            "packaged=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "::notice::No Unity on this runner, so xploit_game_ui.dll was not built."
+            Write-Host "::notice::The draft release expects the artifacts from a local 'tools\package.ps1'."
+            "packaged=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Create the draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $tag = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF -replace '^refs/tags/', '' } else { "v$version" }
+
+          $notes = @"
+          Install in Unity: **Window → Package Manager → + → Install package from tarball…**, and pick
+          ``com.xploit.game_ui-$version.tgz`` below. The tarball carries the prebuilt native runtime, so
+          there is nothing to compile.
+
+          ``xploit_game_ui-native-win-x64.zip`` is the native runtime on its own, for projects that do
+          not install through the Package Manager.
+
+          Requires Unity 6000.2 or newer on Windows x64. Direct3D 12 uses the GPU path; any other
+          graphics API falls back to the software provider.
+
+          See the [changelog](https://github.com/${{ github.repository }}/blob/$tag/unity/Packages/com.xploit.game_ui/CHANGELOG.md)
+          for what changed, and the [support matrix](https://github.com/${{ github.repository }}/blob/$tag/docs/css-support.md)
+          for what the engine does and does not do.
+          "@
+
+          gh release create $tag --draft --title "v$version" --notes $notes --generate-notes
+
+          if ('${{ steps.package.outputs.packaged }}' -eq 'true') {
+            gh release upload $tag (Get-ChildItem dist/*.tgz, dist/*.zip).FullName --clobber
+          }
+
+          Write-Host "::notice::Draft release $tag created. Attach dist/ artifacts if they are missing, then publish."

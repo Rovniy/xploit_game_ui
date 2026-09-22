@@ -1,26 +1,33 @@
 {
   "name": "com.xploit.game_ui",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "displayName": "xploit_game_ui — HTML/CSS/JS Game UI",
-  "description": "Renders HTML/CSS/JavaScript game UI to a GPU texture through the native xploit_game_ui runtime (V8, lexbor, Yoga, Skia). No Gameface, Ultralight or Vuplex.",
+  "description": "Build your game's UI with HTML, CSS and JavaScript and render it on the GPU inside Unity. A native runtime (V8, lexbor, Yoga, Skia) paints the document straight onto Unity's D3D12 device, produces a frame only when something changed, and redraws only the part that changed. No Gameface, Ultralight or Vuplex, and no embedded browser.",
   "unity": "6000.2",
   "keywords": [
     "ui",
     "html",
     "css",
     "javascript",
-    "game-ui"
+    "game-ui",
+    "hud",
+    "skia",
+    "v8"
   ],
   "author": {
-    "name": "Xploit"
+    "name": "Andrei Rovniy",
+    "url": "https://github.com/Rovniy"
   },
+  "documentationUrl": "https://github.com/Rovniy/xploit_game_ui#readme",
+  "changelogUrl": "https://github.com/Rovniy/xploit_game_ui/blob/main/unity/Packages/com.xploit.game_ui/CHANGELOG.md",
+  "licensesUrl": "https://github.com/Rovniy/xploit_game_ui/blob/main/LICENSE",
   "dependencies": {
     "com.unity.ugui": "2.0.0"
   },
   "samples": [
     {
       "displayName": "HUD",
-      "description": "Игровой HUD целиком: страница, скрипт игры и мост между ними.",
+      "description": "A complete game HUD: the page, the game script, and the bridge between them.",
       "path": "Samples~/HUD"
     }
   ]

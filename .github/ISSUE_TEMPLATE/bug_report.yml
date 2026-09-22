@@ -1,0 +1,70 @@
+name: Bug report
+description: Something renders, behaves or crashes differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: the [support matrix](https://github.com/Rovniy/xploit_game_ui/blob/main/docs/css-support.md)
+        lists every known deviation from browser behaviour. If what you hit is
+        already in the "Documented deviations" section, it is expected — open a
+        feature request instead if you want it changed.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest HTML, CSS or JavaScript that shows the problem. A page that
+        reproduces it standalone is worth more than a description of a page.
+
+        `xgu_cli render page.html out.png` and `xgu_cli layout page.html` reproduce
+        most rendering and layout problems without Unity — if yours does, say so.
+      render: html
+      placeholder: |
+        <style>
+          .row { display: flex; gap: 8px; }
+        </style>
+        <div class="row"><span>Name</span><input></div>
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or output
+      description: For a rendering problem, a screenshot. For a crash, the stack or the Unity Console output.
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: "0.8.0, or a commit hash"
+    validations:
+      required: true
+
+  - type: input
+    id: unity
+    attributes:
+      label: Unity version
+      placeholder: "6000.5.1f1"
+
+  - type: dropdown
+    id: renderer
+    attributes:
+      label: Where it happens
+      options:
+        - Unity, D3D12
+        - Unity, CPU provider (any other graphics API)
+        - xgu_cli or xgu_host, no Unity
+        - Not sure
+    validations:
+      required: true
