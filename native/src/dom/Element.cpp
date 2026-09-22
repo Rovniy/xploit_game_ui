@@ -20,6 +20,11 @@ const Atom& classAttribute() {
     return atom;
 }
 
+const Atom& styleAttribute() {
+    static const Atom atom("style");
+    return atom;
+}
+
 bool isHtmlSpace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
 
 std::vector<Atom> splitClasses(std::string_view value) {
@@ -148,6 +153,8 @@ void Element::setAttribute(const Atom& name, std::string_view value) {
         updateIdFromAttribute(value);
     } else if (name == classAttribute()) {
         updateClassesFromAttribute(value);
+    } else if (name == styleAttribute()) {
+        updateInlineStyleFromAttribute(value);
     }
     markDirty(kDirtyStyleSelf | kDirtyStyleChildren);
     if (Document* doc = document()) {
@@ -166,6 +173,8 @@ bool Element::removeAttribute(const Atom& name) {
         updateIdFromAttribute({});
     } else if (name == classAttribute()) {
         updateClassesFromAttribute({});
+    } else if (name == styleAttribute()) {
+        inlineStyle_.reset();
     }
     markDirty(kDirtyStyleSelf | kDirtyStyleChildren);
     if (Document* doc = document()) {
@@ -190,6 +199,34 @@ void Element::updateIdFromAttribute(std::string_view value) {
 }
 
 void Element::updateClassesFromAttribute(std::string_view value) { classes_ = splitClasses(value); }
+
+void Element::updateInlineStyleFromAttribute(std::string_view value) {
+    if (syncingStyleAttribute_) {
+        return; // we wrote the attribute ourselves from the declarations
+    }
+    if (value.empty()) {
+        inlineStyle_.reset();
+        return;
+    }
+    inlineStyle_ = std::make_unique<css::DeclarationBlock>(css::parseDeclarationBlock(value));
+}
+
+css::DeclarationBlock& Element::ensureInlineStyle() {
+    if (!inlineStyle_) {
+        inlineStyle_ = std::make_unique<css::DeclarationBlock>();
+    }
+    return *inlineStyle_;
+}
+
+void Element::syncInlineStyleAttribute() {
+    syncingStyleAttribute_ = true;
+    if (inlineStyle_ && !inlineStyle_->empty()) {
+        setAttribute(styleAttribute(), css::serializeDeclarations(*inlineStyle_));
+    } else {
+        removeAttribute(styleAttribute());
+    }
+    syncingStyleAttribute_ = false;
+}
 
 void Element::didConnect() {
     if (!id_.empty()) {

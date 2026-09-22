@@ -32,6 +32,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # ---------------------------------------------------------------------------
 find_package(unofficial-skia CONFIG REQUIRED)
 find_package(lexbor CONFIG REQUIRED)
+find_package(yoga CONFIG REQUIRED)
 include(FetchV8Nuget) # -> xgu_v8, XGU_V8_RUNTIME_FILES, xgu_add_v8_runtime_copy()
 
 # ---------------------------------------------------------------------------
@@ -94,8 +95,25 @@ add_library(xgu_dom STATIC
     src/html/HtmlTags.cpp
     src/html/LexborHtmlParser.cpp
     src/css/Selector.cpp
-    src/css/SelectorMatcher.cpp)
+    src/css/SelectorMatcher.cpp
+    src/css/Properties.cpp
+    src/css/CssValue.cpp
+    src/css/Tokenizer.cpp
+    src/css/Parser.cpp
+    src/css/ComputedStyle.cpp
+    src/css/StyleEngine.cpp)
 target_link_libraries(xgu_dom PUBLIC xgu_core PRIVATE lexbor::lexbor_static)
+
+# ---------------------------------------------------------------------------
+# Text and layout: skparagraph for inline content, Yoga for boxes
+# ---------------------------------------------------------------------------
+add_library(xgu_layout STATIC
+    src/text/FontManager.cpp
+    src/text/InlineContent.cpp
+    src/layout/LayoutBox.cpp
+    src/layout/LayoutEngine.cpp)
+# LayoutBox.h exposes YGNodeRef, so Yoga is part of the public interface.
+target_link_libraries(xgu_layout PUBLIC xgu_dom xgu_skia yoga::yogacore)
 
 # ---------------------------------------------------------------------------
 # Render: Skia Ganesh D3D12 context, texture providers, test frame
@@ -123,7 +141,7 @@ target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_v8)
 add_library(xgu_runtime STATIC
     src/core/Runtime.cpp
     src/core/View.cpp)
-target_link_libraries(xgu_runtime PUBLIC xgu_core xgu_dom xgu_render xgu_js)
+target_link_libraries(xgu_runtime PUBLIC xgu_core xgu_dom xgu_layout xgu_render xgu_js)
 
 # The C ABI implementation is compiled into every host (DLL, tools, tests).
 set(XGU_CAPI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/capi/CApi.cpp)
@@ -183,7 +201,11 @@ if(XGU_BUILD_TESTS)
         tests/unit/DomTest.cpp
         tests/unit/HtmlParserTest.cpp
         tests/unit/SelectorTest.cpp
-        tests/unit/DocumentLoadTest.cpp)
+        tests/unit/DocumentLoadTest.cpp
+        tests/unit/CssParserTest.cpp
+        tests/unit/StyleEngineTest.cpp
+        tests/unit/LayoutTest.cpp
+        tests/unit/StyleLayoutPipelineTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

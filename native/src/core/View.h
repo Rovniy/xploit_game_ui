@@ -15,6 +15,14 @@ namespace xgu::dom {
 class Document;
 }
 
+namespace xgu::css {
+class StyleEngine;
+}
+
+namespace xgu::layout {
+class LayoutEngine;
+}
+
 namespace xgu {
 
 enum class TextureFormat : uint8_t { BGRA8 = 0, RGBA8 = 1 };
@@ -105,6 +113,13 @@ public:
     dom::Document* documentOrNull() const { return document_.get(); }
     IAssetLoader* assetLoader() const { return assetLoader_.get(); }
 
+    css::StyleEngine* styleEngine() const { return styleEngine_.get(); }
+    layout::LayoutEngine* layoutEngine() const { return layoutEngine_.get(); }
+
+    // Recomputes styles and lays the document out for the current size.
+    // Returns false when there is nothing to lay out.
+    bool updateStyleAndLayout();
+
     // Loads an HTML document relative to the UI root ("UI/Menu/index.html"):
     // reads it, parses it, exposes it to JavaScript and runs its <script> tags.
     bool loadDocument(std::string_view relativePath);
@@ -135,6 +150,8 @@ private:
     std::unique_ptr<IJavaScriptRuntime> js_;
     bool jsFailed_ = false;
     RefPtr<dom::Document> document_;
+    std::unique_ptr<css::StyleEngine> styleEngine_;
+    std::unique_ptr<layout::LayoutEngine> layoutEngine_;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

@@ -1,8 +1,11 @@
 #pragma once
 
+#include "css/ComputedStyle.h"
+#include "css/StyleSheet.h"
 #include "dom/Node.h"
 #include "html/HtmlTags.h"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -42,6 +45,17 @@ public:
     // Element children only, in tree order.
     std::vector<Element*> childElements() const;
 
+    // --- style ---------------------------------------------------------------
+    // Declarations of the style="" attribute (null when there are none).
+    const css::DeclarationBlock* inlineStyle() const { return inlineStyle_.get(); }
+    css::DeclarationBlock& ensureInlineStyle();
+    // Rewrites the style="" attribute from the current declarations.
+    void syncInlineStyleAttribute();
+
+    // Filled by css::StyleEngine; null until the first style recalculation.
+    const css::ComputedStyle* computedStyle() const { return computedStyle_.get(); }
+    void setComputedStyle(RefPtr<css::ComputedStyle> style) { computedStyle_ = std::move(style); }
+
     std::string innerHTML() const;
     std::string outerHTML() const;
     // Replaces the children with the parsed fragment. Returns false on a parse error.
@@ -66,12 +80,16 @@ protected:
 private:
     void updateIdFromAttribute(std::string_view value);
     void updateClassesFromAttribute(std::string_view value);
+    void updateInlineStyleFromAttribute(std::string_view value);
 
     Atom tagName_;
     html::HtmlTag knownTag_;
     Atom id_;
     std::vector<Atom> classes_;
     std::vector<Attribute> attributes_;
+    std::unique_ptr<css::DeclarationBlock> inlineStyle_;
+    RefPtr<css::ComputedStyle> computedStyle_;
+    bool syncingStyleAttribute_ = false;
 };
 
 } // namespace xgu::dom

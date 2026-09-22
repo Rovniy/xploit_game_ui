@@ -1,10 +1,13 @@
 #include "core/View.h"
 
 #include "core/Log.h"
+#include "css/StyleEngine.h"
 #include "dom/Document.h"
 #include "dom/Element.h"
 #include "html/LexborHtmlParser.h"
 #include "js/v8/V8Runtime.h"
+#include "layout/LayoutEngine.h"
+#include "text/FontManager.h"
 
 #include <vector>
 
@@ -23,11 +26,15 @@ View::View(ViewDesc desc)
       dpr_(desc_.devicePixelRatio) {
     if (!desc_.uiRoot.empty()) {
         assetLoader_ = std::make_unique<FileAssetLoader>(desc_.uiRoot);
+        // Fonts shipped with the UI live next to it.
+        text::FontManager::instance().addFontDirectory(desc_.uiRoot + "/fonts");
     }
 }
 
 View::~View() {
     disposeJavaScript();
+    layoutEngine_.reset();
+    styleEngine_.reset();
     document_.reset();
 }
 
@@ -88,8 +95,23 @@ dom::Document& View::ensureDocument() {
     if (!document_) {
         document_ = makeRef<dom::Document>();
         document_->setAssetLoader(assetLoader_.get());
+        styleEngine_ = std::make_unique<css::StyleEngine>(*document_);
+        layoutEngine_ = std::make_unique<layout::LayoutEngine>(*document_);
     }
     return *document_;
+}
+
+bool View::updateStyleAndLayout() {
+    if (!document_ || !styleEngine_ || !layoutEngine_ || !document_->documentElement()) {
+        return false;
+    }
+    const float dpr = devicePixelRatio() > 0.0f ? devicePixelRatio() : 1.0f;
+    // Layout works in CSS pixels; the painter scales to device pixels.
+    const float cssWidth = static_cast<float>(width()) / dpr;
+    const float cssHeight = static_cast<float>(height()) / dpr;
+    styleEngine_->recalcStyles(cssWidth, cssHeight);
+    layoutEngine_->layout(cssWidth, cssHeight, dpr);
+    return true;
 }
 
 bool View::loadDocument(std::string_view relativePath) {
@@ -130,10 +152,17 @@ bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
     XGU_LOG_DEBUG("view \"%s\": DOM ready (%.*s)", desc_.name.c_str(), static_cast<int>(baseRelative.size()),
                   baseRelative.data());
 
+    // <style> blocks and <link rel=stylesheet> are collected before scripts run,
+    // so scripts already see the styled tree.
+    styleEngine_->reloadStyleSheets();
+    updateStyleAndLayout();
+
     // Creating the runtime also binds `document`.
     if (ensureJavaScript()) {
         runDocumentScripts();
     }
+    // Scripts may have changed the DOM; refresh before anyone paints.
+    updateStyleAndLayout();
     setState(ViewState::JsReady);
     return true;
 }
@@ -146,6 +175,8 @@ bool View::reload() {
     const std::string path = loadedPath_;
     disposeJavaScript();
     jsFailed_ = false;
+    layoutEngine_.reset();
+    styleEngine_.reset();
     document_.reset();
     return loadDocument(path);
 }

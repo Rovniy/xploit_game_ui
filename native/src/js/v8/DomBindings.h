@@ -24,7 +24,7 @@ class V8Runtime;
 // through its parent.
 class DomBindings {
 public:
-    enum class Interface : uint8_t { Node, Element, Text, Comment, Document, TokenList, Count };
+    enum class Interface : uint8_t { Node, Element, Text, Comment, Document, TokenList, StyleDeclaration, Count };
 
     DomBindings(V8Runtime& runtime, v8::Isolate* isolate);
     ~DomBindings();
@@ -41,6 +41,8 @@ public:
 
     // Transient DOMTokenList view over an element (Element.classList).
     v8::Local<v8::Value> wrapTokenList(v8::Local<v8::Context> context, dom::Element& element);
+    // Transient CSSStyleDeclaration view over an element's inline style.
+    v8::Local<v8::Value> wrapStyleDeclaration(v8::Local<v8::Context> context, dom::Element& element);
 
     v8::Isolate* isolate() const { return isolate_; }
     V8Runtime& runtime() const { return runtime_; }

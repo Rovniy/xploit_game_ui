@@ -32,9 +32,10 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 .\native\out\x64-windows-release\bin\xgu_host.exe --screenshot out.png --frames 3    # D3D12 без Unity: readback текстуры в PNG
 .\native\out\x64-windows-release\bin\xgu_cli.exe --test-frame out.png                # тот же кадр через CPU-провайдер
 .\native\out\x64-windows-release\bin\xgu_cli.exe js script.js                           # выполнить JS в V8 (console.* в stdout/stderr)
+.\native\out\x64-windows-release\bin\xgu_cli.exe layout page.html --width 800 --height 600  # дамп дерева боксов в JSON
 ```
 
-Статус: Этапы 0–3 завершены (native 89/89). Следующий — Этап 4: CSS и layout. См. [docs/PLAN.md](docs/PLAN.md).
+Статус: Этапы 0–4 завершены (native 160/160). Следующий — Этап 5: отрисовка в GPU-текстуру. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 

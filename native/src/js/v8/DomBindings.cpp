@@ -3,11 +3,13 @@
 #include "core/Log.h"
 #include "css/Selector.h"
 #include "css/SelectorMatcher.h"
+#include "css/StyleSheet.h"
 #include "dom/Document.h"
 #include "dom/Element.h"
 #include "dom/Node.h"
 #include "js/v8/V8Runtime.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -541,6 +543,165 @@ void tokenListValueGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8
     }
 }
 
+// --- CSSStyleDeclaration (element.style) -------------------------------------
+
+// "backgroundColor" -> "background-color"; a name that is already kebab-case
+// passes through unchanged.
+std::string toCssPropertyName(std::string_view name) {
+    std::string result;
+    result.reserve(name.size() + 4);
+    for (char c : name) {
+        if (c >= 'A' && c <= 'Z') {
+            result.push_back('-');
+            result.push_back(static_cast<char>(c - 'A' + 'a'));
+        } else {
+            result.push_back(c);
+        }
+    }
+    return result;
+}
+
+dom::Element* styleOwner(v8::Local<v8::Object> holder) {
+    dom::Node* node = DomBindings::unwrap(holder);
+    return node && node->isElement() ? static_cast<dom::Element*>(node) : nullptr;
+}
+
+// Reads a property out of the inline style block.
+std::string readInlineProperty(const dom::Element& element, const std::string& property) {
+    const css::DeclarationBlock* block = element.inlineStyle();
+    if (!block) {
+        return {};
+    }
+    const css::PropertyId id = css::propertyFromName(property);
+    if (id == css::PropertyId::Invalid) {
+        return {};
+    }
+    for (auto it = block->rbegin(); it != block->rend(); ++it) {
+        if (it->property == id) {
+            return css::serializeValue(it->value);
+        }
+    }
+    return {};
+}
+
+bool writeInlineProperty(dom::Element& element, const std::string& property, std::string_view value) {
+    css::DeclarationBlock& block = element.ensureInlineStyle();
+    const css::PropertyId id = css::propertyFromName(property);
+
+    // Setting a property replaces every earlier declaration of it (and of the
+    // longhands a shorthand expands to).
+    css::DeclarationBlock parsed;
+    if (!value.empty() && !css::parseDeclaration(property, value, parsed)) {
+        return false;
+    }
+    std::vector<css::PropertyId> touched;
+    if (parsed.empty()) {
+        if (id != css::PropertyId::Invalid) {
+            touched.push_back(id);
+        }
+    } else {
+        for (const css::Declaration& declaration : parsed) {
+            touched.push_back(declaration.property);
+        }
+    }
+    block.erase(std::remove_if(block.begin(), block.end(),
+                               [&](const css::Declaration& declaration) {
+                                   return std::find(touched.begin(), touched.end(), declaration.property) !=
+                                          touched.end();
+                               }),
+                block.end());
+    block.insert(block.end(), parsed.begin(), parsed.end());
+    element.syncInlineStyleAttribute();
+    return true;
+}
+
+void styleGetPropertyValueCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = styleOwner(info.This());
+    if (!element || info.Length() < 1) {
+        return;
+    }
+    const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), info[0]));
+    info.GetReturnValue().Set(toV8(info.GetIsolate(), readInlineProperty(*element, property)));
+}
+
+void styleSetPropertyCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = styleOwner(info.This());
+    if (!element || info.Length() < 2) {
+        return;
+    }
+    const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), info[0]));
+    writeInlineProperty(*element, property, toUtf8(info.GetIsolate(), info[1]));
+}
+
+void styleRemovePropertyCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = styleOwner(info.This());
+    if (!element || info.Length() < 1) {
+        return;
+    }
+    const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), info[0]));
+    const std::string previous = readInlineProperty(*element, property);
+    writeInlineProperty(*element, property, {});
+    info.GetReturnValue().Set(toV8(info.GetIsolate(), previous));
+}
+
+void styleCssTextGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    dom::Element* element = styleOwner(info.This());
+    if (!element) {
+        return;
+    }
+    const css::DeclarationBlock* block = element->inlineStyle();
+    info.GetReturnValue().Set(
+        toV8(info.GetIsolate(), block ? css::serializeDeclarations(*block) : std::string()));
+}
+
+// style.width = "10px" and style.width both go through here. Returning
+// kIntercepted tells V8 the property was handled; otherwise the object's own
+// methods (setProperty, cssText, ...) resolve normally.
+v8::Intercepted styleNamedGetter(v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    if (!name->IsString()) {
+        return v8::Intercepted::kNo;
+    }
+    dom::Element* element = styleOwner(info.This());
+    if (!element) {
+        return v8::Intercepted::kNo;
+    }
+    const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), name));
+    if (css::propertyFromName(property) == css::PropertyId::Invalid) {
+        return v8::Intercepted::kNo;
+    }
+    info.GetReturnValue().Set(toV8(info.GetIsolate(), readInlineProperty(*element, property)));
+    return v8::Intercepted::kYes;
+}
+
+v8::Intercepted styleNamedSetter(v8::Local<v8::Name> name, v8::Local<v8::Value> value,
+                                 const v8::PropertyCallbackInfo<void>& info) {
+    if (!name->IsString()) {
+        return v8::Intercepted::kNo;
+    }
+    dom::Element* element = styleOwner(info.This());
+    if (!element) {
+        return v8::Intercepted::kNo;
+    }
+    const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), name));
+    if (css::propertyFromName(property) == css::PropertyId::Invalid) {
+        return v8::Intercepted::kNo;
+    }
+    writeInlineProperty(*element, property, toUtf8(info.GetIsolate(), value));
+    return v8::Intercepted::kYes;
+}
+
+void styleGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    if (!element) {
+        return;
+    }
+    DomBindings* bindings = bindingsOf(info.GetIsolate());
+    if (!bindings) {
+        return;
+    }
+    info.GetReturnValue().Set(bindings->wrapStyleDeclaration(info.GetIsolate()->GetCurrentContext(), *element));
+}
+
 // --- Document --------------------------------------------------------------------
 
 void documentElementGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
@@ -707,6 +868,7 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         accessor(instance, "id", idGetter, idSetter);
         accessor(instance, "className", classNameGetter, classNameSetter);
         accessor(instance, "classList", classListGetter);
+        accessor(instance, "style", styleGetter);
         accessor(instance, "children", childrenGetter);
         accessor(instance, "innerHTML", innerHtmlGetter, innerHtmlSetter);
         accessor(instance, "outerHTML", outerHtmlGetter);
@@ -752,6 +914,18 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         method(proto, "toggle", tokenListToggleCallback);
         method(proto, "contains", tokenListContainsCallback);
         method(proto, "item", tokenListItemCallback);
+        break;
+    case Interface::StyleDeclaration:
+        tmpl->SetClassName(toV8(isolate_, "CSSStyleDeclaration"));
+        accessor(instance, "cssText", styleCssTextGetter);
+        method(proto, "getPropertyValue", styleGetPropertyValueCallback);
+        method(proto, "setProperty", styleSetPropertyCallback);
+        method(proto, "removeProperty", styleRemovePropertyCallback);
+        {
+            v8::NamedPropertyHandlerConfiguration handler(styleNamedGetter, styleNamedSetter);
+            handler.flags = v8::PropertyHandlerFlags::kNonMasking;
+            instance->SetHandler(handler);
+        }
         break;
     case Interface::Count:
         break;
@@ -816,6 +990,17 @@ v8::Local<v8::Value> DomBindings::wrapTokenList(v8::Local<v8::Context> context, 
     // because JavaScript reached it through its own (ref-holding) wrapper.
     list->SetAlignedPointerInInternalField(kNodePointerField, &element);
     return scope.Escape(list.As<v8::Value>());
+}
+
+v8::Local<v8::Value> DomBindings::wrapStyleDeclaration(v8::Local<v8::Context> context, dom::Element& element) {
+    v8::EscapableHandleScope scope(isolate_);
+    v8::Local<v8::Object> declaration;
+    if (!templateFor(Interface::StyleDeclaration)->InstanceTemplate()->NewInstance(context).ToLocal(&declaration)) {
+        return scope.Escape(v8::Null(isolate_).As<v8::Value>());
+    }
+    // Like the token list, this is a transient view over the element.
+    declaration->SetAlignedPointerInInternalField(kNodePointerField, &element);
+    return scope.Escape(declaration.As<v8::Value>());
 }
 
 dom::Node* DomBindings::unwrap(v8::Local<v8::Value> value) {
