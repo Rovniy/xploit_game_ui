@@ -50,6 +50,8 @@ private:
     void paintShadows(SkCanvas& canvas, layout::LayoutBox& box);
     void paintReplaced(SkCanvas& canvas, layout::LayoutBox& box);
     void paintChildren(SkCanvas& canvas, layout::LayoutBox& box);
+    // A thin thumb for each axis that actually overflows.
+    void paintScrollbars(SkCanvas& canvas, layout::LayoutBox& box);
     // Selection highlight (before the glyphs) and caret (after them) for a
     // focused <input> or <textarea>.
     void paintTextControl(SkCanvas& canvas, layout::LayoutBox& box, text::InlineContent& content,

@@ -141,7 +141,8 @@ bool Tester::testBox(LayoutBox& box, float px, float py) {
         return false;
     }
 
-    if (testChildren(box, localX, localY)) {
+    // Children live in the scrolled content space.
+    if (testChildren(box, localX + box.scrollLeft(), localY + box.scrollTop())) {
         return true;
     }
 

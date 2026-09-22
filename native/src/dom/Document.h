@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dom/Element.h"
+#include "dom/BoxProvider.h"
 #include "dom/FocusController.h"
 #include "dom/Node.h"
 
@@ -66,6 +67,11 @@ public:
     FocusController* focusController() const { return focus_; }
     void setFocusController(FocusController* controller) { focus_ = controller; }
 
+    // Where the geometry and scroll properties read from; the layout engine
+    // installs itself here.
+    const BoxProvider* boxProvider() const { return boxes_; }
+    void setBoxProvider(const BoxProvider* provider) { boxes_ = provider; }
+
     RefPtr<Element> createElement(std::string_view tagName);
     RefPtr<Text> createTextNode(std::string_view data);
     RefPtr<Comment> createComment(std::string_view data);
@@ -97,6 +103,7 @@ private:
     MutationSink* sink_ = nullptr;
     const css::ElementStateProvider* elementState_ = nullptr;
     FocusController* focus_ = nullptr;
+    const BoxProvider* boxes_ = nullptr;
     uint64_t treeVersion_ = 0;
     // Documents may hold several elements with the same id; the first in tree
     // order wins, matching browsers.

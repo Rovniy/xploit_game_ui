@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dom/BoxProvider.h"
 #include "layout/LayoutBox.h"
 
 #include <memory>
@@ -16,7 +17,7 @@ namespace xgu::layout {
 // Block containers are laid out as column flex containers (documented deviation
 // in docs/css-support.md); inline content of a block becomes one anonymous
 // InlineContext box measured through skparagraph.
-class LayoutEngine {
+class LayoutEngine final : public dom::BoxProvider {
 public:
     explicit LayoutEngine(dom::Document& document);
     ~LayoutEngine();
@@ -27,7 +28,7 @@ public:
 
     LayoutBox* root() const { return root_.get(); }
     // Box of an element, or nullptr when it generates none (display:none).
-    LayoutBox* boxFor(const dom::Element& element) const;
+    LayoutBox* boxFor(const dom::Element& element) const override;
 
     // Topmost box containing the point, in document coordinates.
     LayoutBox* hitTest(float x, float y) const;

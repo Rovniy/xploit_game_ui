@@ -41,7 +41,7 @@
 | `white-space` | **готово** | normal, nowrap, pre, pre-wrap, pre-line |
 | `text-overflow: ellipsis` | **готово** | при `nowrap` + `overflow: hidden` |
 | `transform`, `transform-origin` | **готово** | translate/scale/rotate/skew/matrix; только визуально, layout не меняет |
-| `overflow` | **готово** | visible/hidden, обрезка по padding box со скруглением; scroll — позже |
+| `overflow` | **готово** | visible, hidden, scroll, auto; обрезка по padding box со скруглением, прокрутка колесом с передачей предку |
 | `box-sizing`, `visibility`, `pointer-events`, `cursor` | **готово** | |
 | `grid-*`, `float`, `clear`, `transition`, `animation`, `filter`, `backdrop-filter`, CSS-переменные, `calc()` | позже | grid и transitions — первые кандидаты после MVP |
 
@@ -80,7 +80,9 @@
 | `document.documentElement`, `head`, `body`, `title`, `URL`, `getElementsByClassName`, `getElementsByTagName` | **готово** |
 | `Element`: `id`, `className`, `classList` (add/remove/toggle/contains/item/length/value), `getAttribute/setAttribute/removeAttribute/hasAttribute`, `textContent`, `innerHTML`, `outerHTML`, `children`, `childNodes`, `parentNode`, `parentElement`, `firstChild`/`lastChild`/`nextSibling`/`previousSibling`, `appendChild`, `insertBefore`, `removeChild`, `remove`, `contains`, `matches`, `tagName`, `nodeType`, `nodeName`, `isConnected` | **готово** |
 | `Element.style` (свойства через camelCase, сокращённые свойства, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
-| `getBoundingClientRect` | план |
+| `getBoundingClientRect` | **готово** | обычный объект, не живой DOMRect |
+| `scrollTop`, `scrollLeft`, `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`, `offsetWidth`, `offsetHeight` | **готово** |
+| `scrollTo`, `scrollBy`, `scrollIntoView` | **готово** | без плавной прокрутки: `behavior: smooth` игнорируется |
 | `addEventListener`/`removeEventListener`/`dispatchEvent`, `new Event(type, init)`, `Event` (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`, `target`, `currentTarget`, `eventPhase`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent`, опции `capture`/`once` | **готово** |
 | `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `requestAnimationFrame`/`cancelAnimationFrame`, `performance.now` | **готово** |
 | `console.log/warn/error/info/debug` → Unity Console | **готово** |
@@ -130,3 +132,6 @@
 23. Таймеры срабатывают ровно раз за кадр, из `xgu_tick`, и измеряют время по часам хоста (`Time.unscaledTimeAsDouble` в Unity). Точность поэтому равна длине кадра, а `setTimeout(fn, 0)` означает «в следующем кадре», а не «как можно скорее в этом». Отдельного потока таймеров нет намеренно: игровой интерфейс живёт в такте игры.
 24. `setTimeout`/`setInterval` принимают только функцию; вариант со строкой кода не поддерживается, потому что рантайм не даёт `eval` внешнему коду.
 25. `performance.now()` отсчитывает время от первого кадра представления, а не от старта процесса.
+26. Полоса прокрутки рисуется как простой ползунок шириной 4 px и не настраивается стилями: `::-webkit-scrollbar` и `scrollbar-width` не поддерживаются. Игровой интерфейс, которому нужна своя полоса, собирает её из элементов и двигает через `scrollTop`.
+27. Прокрутка мгновенная: `behavior: 'smooth'` в `scrollTo`/`scrollBy`/`scrollIntoView` игнорируется, плавность делается своей анимацией.
+28. `getBoundingClientRect` возвращает обычный объект с полями, а не живой `DOMRect`; значения посчитаны на момент вызова.

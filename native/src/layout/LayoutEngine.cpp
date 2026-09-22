@@ -573,6 +573,29 @@ void LayoutEngine::transferFrames(LayoutBox& box, float parentX, float parentY) 
     for (const std::unique_ptr<LayoutBox>& child : box.children()) {
         transferFrames(*child, x, y);
     }
+    // How far the content reaches past the padding box is what can be scrolled.
+    // Measured after the children have their frames, so it sees the real extent.
+    if (box.style() && box.style()->clipsOverflow()) {
+        const Rect padding = box.paddingBox();
+        float right = padding.width;
+        float bottom = padding.height;
+        for (const std::unique_ptr<LayoutBox>& child : box.children()) {
+            const Rect& frame = child->borderBox();
+            right = std::max(right, frame.right() - padding.x);
+            bottom = std::max(bottom, frame.bottom() - padding.y);
+        }
+        if (const text::InlineContent* inlineContent = box.inlineContent()) {
+            for (const text::InlinePlaceholder& placeholder : inlineContent->placeholders()) {
+                if (placeholder.box) {
+                    const Rect& frame = placeholder.box->borderBox();
+                    right = std::max(right, frame.right() - padding.x);
+                    bottom = std::max(bottom, frame.bottom() - padding.y);
+                }
+            }
+        }
+        box.setScrollSize(right, bottom);
+    }
+
     // Atomic inlines sit where the paragraph placed their placeholders.
     if (const text::InlineContent* content = box.inlineContent()) {
         const Rect contentBox = box.contentBox();

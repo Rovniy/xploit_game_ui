@@ -452,8 +452,41 @@ bool InputRouter::handleWheel(const InputEvent& event) {
     if (!target) {
         return false;
     }
-    fire(*target, dom::eventNames::wheel(), dom::EventCategory::Wheel, true, true, event);
-    return true;
+    RefPtr<Element> keepTarget(target);
+    if (!fire(*target, dom::eventNames::wheel(), dom::EventCategory::Wheel, true, true, event)) {
+        return true; // the page handled the wheel itself
+    }
+    // Default action: scroll the nearest ancestor that can still move in this
+    // direction, the way a browser chains scrolling outwards.
+    return scrollNearest(*target, event.deltaX, event.deltaY);
+}
+
+bool InputRouter::scrollNearest(Element& from, float deltaX, float deltaY) {
+    for (Element* element = &from; element; element = element->parentElement()) {
+        layout::LayoutBox* box = layout_.boxFor(*element);
+        if (!box) {
+            continue;
+        }
+        const bool canX = deltaX != 0.0f && box->scrollsHorizontally() &&
+                          ((deltaX > 0.0f && box->scrollLeft() < box->maxScrollLeft()) ||
+                           (deltaX < 0.0f && box->scrollLeft() > 0.0f));
+        const bool canY = deltaY != 0.0f && box->scrollsVertically() &&
+                          ((deltaY > 0.0f && box->scrollTop() < box->maxScrollTop()) ||
+                           (deltaY < 0.0f && box->scrollTop() > 0.0f));
+        if (!canX && !canY) {
+            continue;
+        }
+        if (!box->setScroll(box->scrollLeft() + (canX ? deltaX : 0.0f),
+                            box->scrollTop() + (canY ? deltaY : 0.0f))) {
+            continue;
+        }
+        element->markDirty(dom::kDirtyPaintSelf | dom::kDirtyPaintChildren);
+        InputEvent synthetic;
+        // `scroll` does not bubble in the DOM; listeners go on the box itself.
+        fire(*element, dom::eventNames::scroll(), dom::EventCategory::Plain, false, false, synthetic);
+        return true;
+    }
+    return false;
 }
 
 bool InputRouter::handleKey(const InputEvent& event) {

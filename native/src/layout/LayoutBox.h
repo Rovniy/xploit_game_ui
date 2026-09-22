@@ -72,6 +72,26 @@ public:
     LayoutBox& addAtomicInline(std::unique_ptr<LayoutBox> box);
     const std::vector<std::unique_ptr<LayoutBox>>& atomicInlines() const { return atomicInlines_; }
 
+    // --- scrolling -----------------------------------------------------------
+    // How far the content is scrolled, in CSS pixels. Applied when painting and
+    // hit testing rather than baked into the frames, so scrolling never has to
+    // run layout again.
+    float scrollLeft() const { return scrollLeft_; }
+    float scrollTop() const { return scrollTop_; }
+    // Clamps to the scrollable range; returns true when the offset moved.
+    bool setScroll(float left, float top);
+
+    // Size of the content, at least the size of the padding box.
+    float scrollWidth() const { return scrollWidth_; }
+    float scrollHeight() const { return scrollHeight_; }
+    void setScrollSize(float width, float height);
+
+    float maxScrollLeft() const;
+    float maxScrollTop() const;
+    // True when the style asks for scrolling and there is something to scroll.
+    bool scrollsHorizontally() const;
+    bool scrollsVertically() const;
+
     // Intrinsic size of a replaced box (image, and later video).
     void setIntrinsicSize(float width, float height) {
         intrinsicWidth_ = width;
@@ -97,6 +117,10 @@ private:
     std::vector<std::unique_ptr<LayoutBox>> atomicInlines_;
     float intrinsicWidth_ = 0.0f;
     float intrinsicHeight_ = 0.0f;
+    float scrollLeft_ = 0.0f;
+    float scrollTop_ = 0.0f;
+    float scrollWidth_ = 0.0f;
+    float scrollHeight_ = 0.0f;
 };
 
 } // namespace xgu::layout

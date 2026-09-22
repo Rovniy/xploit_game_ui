@@ -105,6 +105,7 @@ dom::Document& View::ensureDocument() {
         inputRouter_ = std::make_unique<input::InputRouter>(*document_, *layoutEngine_);
         document_->setElementStateProvider(inputRouter_.get());
         document_->setFocusController(inputRouter_.get());
+        document_->setBoxProvider(layoutEngine_.get());
     }
     return *document_;
 }

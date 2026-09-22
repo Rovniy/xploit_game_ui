@@ -146,7 +146,9 @@ add_library(xgu_js STATIC
     src/js/v8/DomBindings.cpp
     src/js/v8/Timers.cpp
     src/js/v8/UnityBindings.cpp)
-target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_v8)
+# The DOM bindings read box geometry for getBoundingClientRect and the scroll
+# properties, so they need the layout tree.
+target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_layout xgu_v8)
 
 # ---------------------------------------------------------------------------
 # Runtime aggregate (process singleton wiring core + render + js)
@@ -224,7 +226,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/InputTest.cpp
         tests/unit/TextControlTest.cpp
         tests/unit/BridgeTest.cpp
-        tests/unit/TimerTest.cpp)
+        tests/unit/TimerTest.cpp
+        tests/unit/ScrollTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

@@ -1,5 +1,7 @@
 #include "layout/LayoutBox.h"
 
+#include <algorithm>
+
 #include <yoga/YGNode.h>
 
 namespace xgu::layout {
@@ -57,6 +59,39 @@ LayoutBox& LayoutBox::addAtomicInline(std::unique_ptr<LayoutBox> box) {
     LayoutBox& reference = *box;
     atomicInlines_.push_back(std::move(box));
     return reference;
+}
+
+void LayoutBox::setScrollSize(float width, float height) {
+    const Rect padding = paddingBox();
+    scrollWidth_ = std::max(width, padding.width);
+    scrollHeight_ = std::max(height, padding.height);
+    // The content may have shrunk under the current offset.
+    setScroll(scrollLeft_, scrollTop_);
+}
+
+float LayoutBox::maxScrollLeft() const { return std::max(0.0f, scrollWidth_ - paddingBox().width); }
+
+float LayoutBox::maxScrollTop() const { return std::max(0.0f, scrollHeight_ - paddingBox().height); }
+
+bool LayoutBox::setScroll(float left, float top) {
+    const float clampedLeft = std::clamp(left, 0.0f, maxScrollLeft());
+    const float clampedTop = std::clamp(top, 0.0f, maxScrollTop());
+    if (clampedLeft == scrollLeft_ && clampedTop == scrollTop_) {
+        return false;
+    }
+    scrollLeft_ = clampedLeft;
+    scrollTop_ = clampedTop;
+    return true;
+}
+
+bool LayoutBox::scrollsHorizontally() const {
+    return style_ && style_->overflowX != css::Overflow::Visible && style_->overflowX != css::Overflow::Hidden &&
+           maxScrollLeft() > 0.0f;
+}
+
+bool LayoutBox::scrollsVertically() const {
+    return style_ && style_->overflowY != css::Overflow::Visible && style_->overflowY != css::Overflow::Hidden &&
+           maxScrollTop() > 0.0f;
 }
 
 text::InlineContent& LayoutBox::ensureInlineContent() {

@@ -102,7 +102,53 @@ void Painter::paintBoxAndDescendants(SkCanvas& canvas, LayoutBox& box, bool isSt
     if (clips) {
         canvas.clipRRect(paddingBoxRRect(box), true);
     }
-    paintChildren(canvas, box);
+    {
+        // Scrolling is a translation of the content inside the clip, so nothing
+        // below has to know the box scrolls.
+        const bool scrolled = box.scrollLeft() != 0.0f || box.scrollTop() != 0.0f;
+        SkAutoCanvasRestore scrollRestore(&canvas, scrolled);
+        if (scrolled) {
+            canvas.translate(-box.scrollLeft(), -box.scrollTop());
+        }
+        paintChildren(canvas, box);
+    }
+    if (clips) {
+        // The bars sit on top of the content and do not scroll with it.
+        paintScrollbars(canvas, box);
+    }
+}
+
+void Painter::paintScrollbars(SkCanvas& canvas, LayoutBox& box) {
+    if (!box.scrollsHorizontally() && !box.scrollsVertically()) {
+        return;
+    }
+    const Rect padding = box.paddingBox();
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(SkColorSetARGB(0x80, 0xC0, 0xC8, 0xD4));
+
+    // One plain thumb, no track and no buttons. A game UI that wants a styled
+    // scrollbar builds it out of elements; this is only so overflow is visible.
+    constexpr float kThickness = 4.0f;
+    constexpr float kMinThumb = 16.0f;
+    if (box.scrollsVertically()) {
+        const float ratio = padding.height / box.scrollHeight();
+        const float thumb = std::max(kMinThumb, padding.height * ratio);
+        const float travel = padding.height - thumb;
+        const float offset = box.maxScrollTop() > 0.0f ? travel * (box.scrollTop() / box.maxScrollTop()) : 0.0f;
+        canvas.drawRoundRect(
+            SkRect::MakeXYWH(padding.right() - kThickness - 1.0f, padding.y + offset, kThickness, thumb),
+            kThickness * 0.5f, kThickness * 0.5f, paint);
+    }
+    if (box.scrollsHorizontally()) {
+        const float ratio = padding.width / box.scrollWidth();
+        const float thumb = std::max(kMinThumb, padding.width * ratio);
+        const float travel = padding.width - thumb;
+        const float offset = box.maxScrollLeft() > 0.0f ? travel * (box.scrollLeft() / box.maxScrollLeft()) : 0.0f;
+        canvas.drawRoundRect(
+            SkRect::MakeXYWH(padding.x + offset, padding.bottom() - kThickness - 1.0f, thumb, kThickness),
+            kThickness * 0.5f, kThickness * 0.5f, paint);
+    }
 }
 
 void Painter::paintDecorations(SkCanvas& canvas, LayoutBox& box) {

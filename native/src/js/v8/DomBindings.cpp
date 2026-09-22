@@ -11,9 +11,11 @@
 #include "dom/FocusController.h"
 #include "dom/TextControl.h"
 #include "dom/Node.h"
+#include "layout/LayoutBox.h"
 #include "js/v8/V8Runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -971,6 +973,211 @@ void eventConstructorCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
     info.GetReturnValue().Set(bindings->wrapEvent(context, event.get()));
 }
 
+// --- box geometry and scrolling ---------------------------------------------------
+
+// The laid-out box of an element, or null before the first layout.
+layout::LayoutBox* boxOf(dom::Element* element) {
+    if (!element || !element->document() || !element->document()->boxProvider()) {
+        return nullptr;
+    }
+    return element->document()->boxProvider()->boxFor(*element);
+}
+
+layout::LayoutBox* receiverBox(const v8::PropertyCallbackInfo<v8::Value>& info) {
+    return boxOf(receiverElement(info));
+}
+
+// Offset of the border box on screen, with every ancestor's scrolling taken off.
+void documentOffset(const layout::LayoutBox& box, float& outX, float& outY) {
+    outX = box.borderBox().x;
+    outY = box.borderBox().y;
+    for (const layout::LayoutBox* ancestor = box.parent(); ancestor; ancestor = ancestor->parent()) {
+        outX -= ancestor->scrollLeft();
+        outY -= ancestor->scrollTop();
+    }
+}
+
+void getBoundingClientRectCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
+    dom::Element* element = receiverElement(info);
+    if (!element) {
+        return;
+    }
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    if (const layout::LayoutBox* box = boxOf(element)) {
+        documentOffset(*box, x, y);
+        width = box->borderBox().width;
+        height = box->borderBox().height;
+    }
+    // A plain object, not a live DOMRect: nothing in the engine updates it.
+    v8::Local<v8::Object> rect = v8::Object::New(isolate);
+    const auto set = [&](const char* name, float value) {
+        rect->Set(context, toV8(isolate, name), v8::Number::New(isolate, value)).Check();
+    };
+    set("x", x);
+    set("y", y);
+    set("left", x);
+    set("top", y);
+    set("width", width);
+    set("height", height);
+    set("right", x + width);
+    set("bottom", y + height);
+    info.GetReturnValue().Set(rect);
+}
+
+#define XGU_BOX_GETTER(name, expression)                                                                             \
+    void name(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {                                \
+        layout::LayoutBox* box = receiverBox(info);                                                                  \
+        info.GetReturnValue().Set(box ? (expression) : 0.0);                                                          \
+    }
+
+XGU_BOX_GETTER(scrollLeftGetter, static_cast<double>(box->scrollLeft()))
+XGU_BOX_GETTER(scrollTopGetter, static_cast<double>(box->scrollTop()))
+XGU_BOX_GETTER(scrollWidthGetter, static_cast<double>(std::round(box->scrollWidth())))
+XGU_BOX_GETTER(scrollHeightGetter, static_cast<double>(std::round(box->scrollHeight())))
+XGU_BOX_GETTER(clientWidthGetter, static_cast<double>(std::round(box->paddingBox().width)))
+XGU_BOX_GETTER(clientHeightGetter, static_cast<double>(std::round(box->paddingBox().height)))
+XGU_BOX_GETTER(offsetWidthGetter, static_cast<double>(std::round(box->borderBox().width)))
+XGU_BOX_GETTER(offsetHeightGetter, static_cast<double>(std::round(box->borderBox().height)))
+
+#undef XGU_BOX_GETTER
+
+// Moves the box and marks it for repaint; returns true when it actually moved.
+bool applyScroll(dom::Element& element, layout::LayoutBox& box, float left, float top) {
+    if (!box.setScroll(left, top)) {
+        return false;
+    }
+    element.markDirty(dom::kDirtyPaintSelf | dom::kDirtyPaintChildren);
+    return true;
+}
+
+void scrollLeftSetter(v8::Local<v8::Name>, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<void>& info) {
+    dom::Node* node = DomBindings::unwrap(info.This());
+    if (!node || !node->isElement()) {
+        return;
+    }
+    auto* element = static_cast<dom::Element*>(node);
+    if (layout::LayoutBox* box = boxOf(element)) {
+        const double target = value->NumberValue(info.GetIsolate()->GetCurrentContext()).FromMaybe(0.0);
+        applyScroll(*element, *box, static_cast<float>(target), box->scrollTop());
+    }
+}
+
+void scrollTopSetter(v8::Local<v8::Name>, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<void>& info) {
+    dom::Node* node = DomBindings::unwrap(info.This());
+    if (!node || !node->isElement()) {
+        return;
+    }
+    auto* element = static_cast<dom::Element*>(node);
+    if (layout::LayoutBox* box = boxOf(element)) {
+        const double target = value->NumberValue(info.GetIsolate()->GetCurrentContext()).FromMaybe(0.0);
+        applyScroll(*element, *box, box->scrollLeft(), static_cast<float>(target));
+    }
+}
+
+// scrollTo(x, y) or scrollTo({ left, top }); scrollBy adds to the current offset.
+void scrollToCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
+    dom::Element* element = receiverElement(info);
+    layout::LayoutBox* box = boxOf(element);
+    if (!box) {
+        return;
+    }
+    double left = box->scrollLeft();
+    double top = box->scrollTop();
+    if (info.Length() >= 1 && info[0]->IsObject()) {
+        v8::Local<v8::Object> options = info[0].As<v8::Object>();
+        v8::Local<v8::Value> value;
+        if (options->Get(context, toV8(isolate, "left")).ToLocal(&value) && !value->IsUndefined()) {
+            left = value->NumberValue(context).FromMaybe(left);
+        }
+        if (options->Get(context, toV8(isolate, "top")).ToLocal(&value) && !value->IsUndefined()) {
+            top = value->NumberValue(context).FromMaybe(top);
+        }
+    } else {
+        if (info.Length() >= 1) {
+            left = info[0]->NumberValue(context).FromMaybe(left);
+        }
+        if (info.Length() >= 2) {
+            top = info[1]->NumberValue(context).FromMaybe(top);
+        }
+    }
+    applyScroll(*element, *box, static_cast<float>(left), static_cast<float>(top));
+}
+
+void scrollByCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
+    dom::Element* element = receiverElement(info);
+    layout::LayoutBox* box = boxOf(element);
+    if (!box) {
+        return;
+    }
+    double dx = 0.0;
+    double dy = 0.0;
+    if (info.Length() >= 1 && info[0]->IsObject()) {
+        v8::Local<v8::Object> options = info[0].As<v8::Object>();
+        v8::Local<v8::Value> value;
+        if (options->Get(context, toV8(isolate, "left")).ToLocal(&value)) {
+            dx = value->NumberValue(context).FromMaybe(0.0);
+        }
+        if (options->Get(context, toV8(isolate, "top")).ToLocal(&value)) {
+            dy = value->NumberValue(context).FromMaybe(0.0);
+        }
+    } else {
+        if (info.Length() >= 1) {
+            dx = info[0]->NumberValue(context).FromMaybe(0.0);
+        }
+        if (info.Length() >= 2) {
+            dy = info[1]->NumberValue(context).FromMaybe(0.0);
+        }
+    }
+    applyScroll(*element, *box, box->scrollLeft() + static_cast<float>(dx),
+                box->scrollTop() + static_cast<float>(dy));
+}
+
+// Scrolls the nearest scrolling ancestor so this element is inside its box.
+void scrollIntoViewCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    layout::LayoutBox* box = boxOf(element);
+    if (!box) {
+        return;
+    }
+    for (layout::LayoutBox* ancestor = box->parent(); ancestor; ancestor = ancestor->parent()) {
+        if (!ancestor->scrollsHorizontally() && !ancestor->scrollsVertically()) {
+            continue;
+        }
+        dom::Element* owner = ancestor->element();
+        if (!owner) {
+            continue;
+        }
+        const layout::Rect viewport = ancestor->paddingBox();
+        const layout::Rect& frame = box->borderBox();
+        // Frames are unscrolled, so the current offset has to come off.
+        const float relativeX = frame.x - viewport.x;
+        const float relativeY = frame.y - viewport.y;
+        float left = ancestor->scrollLeft();
+        float top = ancestor->scrollTop();
+        if (relativeY < top) {
+            top = relativeY;
+        } else if (relativeY + frame.height > top + viewport.height) {
+            top = relativeY + frame.height - viewport.height;
+        }
+        if (relativeX < left) {
+            left = relativeX;
+        } else if (relativeX + frame.width > left + viewport.width) {
+            left = relativeX + frame.width - viewport.width;
+        }
+        applyScroll(*owner, *ancestor, left, top);
+        return;
+    }
+}
+
 // --- form controls ----------------------------------------------------------------
 
 // The editing state of the receiver, or null when it is not a text control.
@@ -1255,6 +1462,19 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         method(proto, "select", selectCallback);
         method(proto, "focus", focusCallback);
         method(proto, "blur", blurCallback);
+        // Geometry and scrolling.
+        accessor(instance, "scrollLeft", scrollLeftGetter, scrollLeftSetter);
+        accessor(instance, "scrollTop", scrollTopGetter, scrollTopSetter);
+        accessor(instance, "scrollWidth", scrollWidthGetter);
+        accessor(instance, "scrollHeight", scrollHeightGetter);
+        accessor(instance, "clientWidth", clientWidthGetter);
+        accessor(instance, "clientHeight", clientHeightGetter);
+        accessor(instance, "offsetWidth", offsetWidthGetter);
+        accessor(instance, "offsetHeight", offsetHeightGetter);
+        method(proto, "getBoundingClientRect", getBoundingClientRectCallback);
+        method(proto, "scrollTo", scrollToCallback);
+        method(proto, "scrollBy", scrollByCallback);
+        method(proto, "scrollIntoView", scrollIntoViewCallback);
         break;
     case Interface::Text:
         tmpl->SetClassName(toV8(isolate_, "Text"));

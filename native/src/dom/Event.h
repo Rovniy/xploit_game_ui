@@ -151,6 +151,7 @@ const Atom& keyup();
 const Atom& beforeinput();
 const Atom& input();
 const Atom& change();
+const Atom& scroll();
 const Atom& focus();
 const Atom& blur();
 const Atom& focusin();

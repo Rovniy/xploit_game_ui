@@ -98,6 +98,8 @@ private:
     bool handleMouseDown(const InputEvent& event);
     bool handleMouseUp(const InputEvent& event);
     bool handleWheel(const InputEvent& event);
+    // Scrolls the nearest ancestor-or-self that can still move that way.
+    bool scrollNearest(dom::Element& from, float deltaX, float deltaY);
     bool handleKey(const InputEvent& event);
     bool handleTextInput(const InputEvent& event);
 
