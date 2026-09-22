@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -34,12 +35,33 @@ public:
     static bool queueEnabled();
 
     // Pops the oldest queued message. Returns false when the queue is empty.
-    static bool poll(LogLevel& level, std::string& message);
+    // `viewId` reports which view produced it, or zero for runtime-wide
+    // messages.
+    static bool poll(LogLevel& level, std::string& message, uint64_t& viewId);
 
     // Number of messages dropped because the queue was full (and resets it).
     static size_t takeDroppedCount();
 
     static constexpr size_t kMaxQueuedMessages = 4096;
+
+    // The view everything logged on this thread currently belongs to.
+    static uint64_t currentViewId();
+    static void setCurrentViewId(uint64_t viewId);
+};
+
+// Attributes every message logged on this thread to one view while it is alive.
+// The runtime thread wraps the work it does for a view in one of these, so page
+// console output and parse warnings say which document they came from.
+class LogViewScope {
+public:
+    explicit LogViewScope(uint64_t viewId) : previous_(Log::currentViewId()) { Log::setCurrentViewId(viewId); }
+    ~LogViewScope() { Log::setCurrentViewId(previous_); }
+
+    LogViewScope(const LogViewScope&) = delete;
+    LogViewScope& operator=(const LogViewScope&) = delete;
+
+private:
+    uint64_t previous_;
 };
 
 } // namespace xgu

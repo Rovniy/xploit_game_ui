@@ -147,8 +147,10 @@ XGU_API void xgu_tick(double time_seconds);
 XGU_API void xgu_log_queue_enable(bool enabled);
 
 /* Pops the oldest queued message. Returns false when the queue is empty.
-   `out_message` stays valid until the next xgu_log_poll call on this thread. */
-XGU_API bool xgu_log_poll(int* out_level, const char** out_message);
+   `out_message` stays valid until the next xgu_log_poll call on this thread.
+   `out_view` (may be NULL) names the view the message came from, or
+   XGU_INVALID_VIEW for messages from the runtime itself. */
+XGU_API bool xgu_log_poll(int* out_level, const char** out_message, xgu_view_id* out_view);
 
 /* Number of messages dropped because the queue overflowed; resets the counter. */
 XGU_API uint32_t xgu_log_dropped_count(void);

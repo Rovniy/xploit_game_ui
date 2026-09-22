@@ -101,6 +101,39 @@ namespace Xploit.GameUI
             }
         }
 
+        /// <summary>
+        /// Every message from the runtime, including the ones a view also raises
+        /// through <see cref="HtmlView.Log"/>. Useful for an in-game console.
+        /// </summary>
+        public static event Action<WebLogMessage> Log;
+
+        /// <summary>
+        /// Stops the runtime's messages from reaching the Unity Console. The
+        /// <see cref="Log"/> events still fire, so set this when routing output
+        /// somewhere of your own.
+        /// </summary>
+        public static bool SuppressConsoleOutput { get; set; }
+
+        /// <summary>The views currently alive, in registration order.</summary>
+        public static IReadOnlyList<HtmlView> Views =>
+            s_instance != null ? s_instance.m_views : System.Array.Empty<HtmlView>();
+
+        HtmlView FindView(ulong handle)
+        {
+            if (handle == Native.InvalidView)
+            {
+                return null;
+            }
+            for (int i = 0; i < m_views.Count; i++)
+            {
+                if (m_views[i] != null && m_views[i].Handle == handle)
+                {
+                    return m_views[i];
+                }
+            }
+            return null;
+        }
+
         internal void Register(HtmlView view)
         {
             if (!m_views.Contains(view))
@@ -145,21 +178,29 @@ namespace Xploit.GameUI
             const int maxPerFrame = 256;
             for (int i = 0; i < maxPerFrame; i++)
             {
-                if (!Native.xgu_log_poll(out var level, out var messagePtr) || messagePtr == IntPtr.Zero)
+                if (!Native.xgu_log_poll(out var level, out var messagePtr, out var handle) ||
+                    messagePtr == IntPtr.Zero)
                 {
                     break;
                 }
-                var message = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(messagePtr);
-                switch ((Native.LogLevel)level)
+                var text = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(messagePtr);
+                var message = new WebLogMessage((WebLogLevel)level, text, FindView(handle));
+                message.View?.RaiseLog(message);
+                Log?.Invoke(message);
+                if (SuppressConsoleOutput)
                 {
-                    case Native.LogLevel.Error:
-                        Debug.LogError(message);
+                    continue;
+                }
+                switch (message.Level)
+                {
+                    case WebLogLevel.Error:
+                        Debug.LogError(text, message.View);
                         break;
-                    case Native.LogLevel.Warning:
-                        Debug.LogWarning(message);
+                    case WebLogLevel.Warning:
+                        Debug.LogWarning(text, message.View);
                         break;
                     default:
-                        Debug.Log(message);
+                        Debug.Log(text, message.View);
                         break;
                 }
             }

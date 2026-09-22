@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "core/View.h"
 #include "js/v8/DomBindings.h"
+#include "js/v8/Timers.h"
 #include "js/v8/UnityBindings.h"
 #include "js/v8/V8Platform.h"
 
@@ -77,11 +78,13 @@ bool V8Runtime::initialize() {
     context_.Reset(isolate_, context);
     dom_ = std::make_unique<DomBindings>(*this, isolate_);
     unity_ = std::make_unique<UnityBindings>(*this, isolate_, view_.bridge());
+    timers_ = std::make_unique<Timers>(*this, isolate_);
     {
         // V8 bootstraps its own no-op `console`; replace it after context creation.
         v8::Context::Scope contextScope(context);
         installGlobals(context);
         unity_->install(context);
+        timers_->install(context);
     }
     XGU_LOG_DEBUG("view \"%s\": V8 isolate created", view_.desc().name.c_str());
     return true;
@@ -119,6 +122,7 @@ void V8Runtime::callFunction(v8::Local<v8::Function> function, v8::Local<v8::Val
     if (!isolate_ || function.IsEmpty() || context_.IsEmpty()) {
         return;
     }
+    const LogViewScope logScope(view_.id());
     v8::Isolate::Scope isolateScope(isolate_);
     v8::HandleScope handleScope(isolate_);
     v8::Local<v8::Context> context = context_.Get(isolate_);
@@ -135,6 +139,7 @@ void V8Runtime::callFunction(v8::Local<v8::Function> function, v8::Local<v8::Val
 }
 
 void V8Runtime::deliverBridgeMessage(const BridgeMessage& message) {
+    const LogViewScope logScope(view_.id());
     if (unity_) {
         unity_->deliver(message);
     }
@@ -144,6 +149,7 @@ void V8Runtime::evaluate(std::string_view source, std::string_view originName) {
     if (!isolate_) {
         return;
     }
+    const LogViewScope logScope(view_.id());
     v8::Isolate::Scope isolateScope(isolate_);
     v8::HandleScope handleScope(isolate_);
     v8::Local<v8::Context> context = context_.Get(isolate_);
@@ -177,18 +183,26 @@ void V8Runtime::evaluate(std::string_view source, std::string_view originName) {
     }
 }
 
-void V8Runtime::tick(double) {
+void V8Runtime::tick(double timeSeconds) {
     if (!isolate_) {
         return;
     }
-    v8::Isolate::Scope isolateScope(isolate_);
-    v8::HandleScope handleScope(isolate_);
-    v8::Local<v8::Context> context = context_.Get(isolate_);
-    v8::Context::Scope contextScope(context);
-    v8::Platform* platform = V8Platform::instance().platform();
-    for (int i = 0; i < 64 && platform && v8::platform::PumpMessageLoop(platform, isolate_); ++i) {
+    const LogViewScope logScope(view_.id());
+    {
+        v8::Isolate::Scope isolateScope(isolate_);
+        v8::HandleScope handleScope(isolate_);
+        v8::Local<v8::Context> context = context_.Get(isolate_);
+        v8::Context::Scope contextScope(context);
+        v8::Platform* platform = V8Platform::instance().platform();
+        for (int i = 0; i < 64 && platform && v8::platform::PumpMessageLoop(platform, isolate_); ++i) {
+        }
+        isolate_->PerformMicrotaskCheckpoint();
     }
-    isolate_->PerformMicrotaskCheckpoint();
+    // Timers and animation frames run after the engine's own work, before the
+    // frame is restyled, which is where a browser fires them too.
+    if (timers_) {
+        timers_->tick(timeSeconds);
+    }
 }
 
 V8Runtime* V8Runtime::fromIsolate(v8::Isolate* isolate) {
@@ -213,6 +227,9 @@ void V8Runtime::dispose() {
     {
         v8::Isolate::Scope isolateScope(isolate_);
         v8::HandleScope handleScope(isolate_);
+        if (timers_) {
+            timers_->dispose();
+        }
         if (unity_) {
             // Rejects the calls still in flight before the context goes away.
             unity_->dispose();
@@ -222,6 +239,7 @@ void V8Runtime::dispose() {
         }
         context_.Reset();
     }
+    timers_.reset();
     unity_.reset();
     dom_.reset();
     isolate_->Dispose();

@@ -18,6 +18,7 @@ class Document;
 namespace xgu::js {
 
 class DomBindings;
+class Timers;
 class UnityBindings;
 
 // One V8 isolate + context per view. Runtime thread only.
@@ -36,6 +37,7 @@ public:
     v8::Isolate* isolate() const { return isolate_; }
     DomBindings* domBindings() const { return dom_.get(); }
     UnityBindings* unityBindings() const { return unity_.get(); }
+    Timers* timers() const { return timers_.get(); }
     // The view's context; empty before initialize() or after dispose().
     v8::Local<v8::Context> context() const;
 
@@ -69,6 +71,7 @@ private:
     v8::Global<v8::Context> context_;
     std::unique_ptr<DomBindings> dom_;
     std::unique_ptr<UnityBindings> unity_;
+    std::unique_ptr<Timers> timers_;
 };
 
 } // namespace xgu::js

@@ -72,10 +72,11 @@ XGU_API void xgu_tick(double time_seconds) { Runtime::instance().tick(time_secon
 
 XGU_API void xgu_log_queue_enable(bool enabled) { Log::setQueueEnabled(enabled); }
 
-XGU_API bool xgu_log_poll(int* out_level, const char** out_message) {
+XGU_API bool xgu_log_poll(int* out_level, const char** out_message, xgu_view_id* out_view) {
     static thread_local std::string buffer;
     LogLevel level = LogLevel::Info;
-    if (!Log::poll(level, buffer)) {
+    uint64_t viewId = 0;
+    if (!Log::poll(level, buffer, viewId)) {
         return false;
     }
     if (out_level) {
@@ -83,6 +84,9 @@ XGU_API bool xgu_log_poll(int* out_level, const char** out_message) {
     }
     if (out_message) {
         *out_message = buffer.c_str();
+    }
+    if (out_view) {
+        *out_view = static_cast<xgu_view_id>(viewId);
     }
     return true;
 }

@@ -38,7 +38,7 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 
 Эталонные изображения golden-тестов перегенерируются переменной окружения `XGU_UPDATE_GOLDEN=1`; при расхождении тест пишет рядом `<имя>.actual.png` и `<имя>.diff.png`.
 
-Статус: Этапы 0–7 завершены (native 252/252, Unity PlayMode 39/39 на D3D12). Следующий — Этап 8: публичный API Unity и инспектор. См. [docs/PLAN.md](docs/PLAN.md).
+Статус: Этапы 0–7 завершены, Этап 8 написан и ждёт прогона PlayMode (native 265/265). Следующий — Этап 9: UI в мировом пространстве. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 

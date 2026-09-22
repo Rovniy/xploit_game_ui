@@ -213,8 +213,13 @@ TEST_F(V8Test, LogQueueBuffersAndDrains) {
     std::vector<std::pair<int, std::string>> drained;
     int level = 0;
     const char* message = nullptr;
-    while (xgu_log_poll(&level, &message)) {
+    xgu_view_id source = XGU_INVALID_VIEW;
+    while (xgu_log_poll(&level, &message, &source)) {
         drained.emplace_back(level, message ? message : "");
+        // Page output is attributed to the view that produced it.
+        if (std::string(message ? message : "").find("queued ") != std::string::npos) {
+            EXPECT_NE(source, XGU_INVALID_VIEW) << "console output should name its view";
+        }
     }
     xgu_log_queue_enable(false);
 
@@ -227,7 +232,7 @@ TEST_F(V8Test, LogQueueBuffersAndDrains) {
     }
     EXPECT_TRUE(sawInfo);
     EXPECT_TRUE(sawWarning);
-    EXPECT_FALSE(xgu_log_poll(&level, &message)) << "queue must be empty after draining";
+    EXPECT_FALSE(xgu_log_poll(&level, &message, &source)) << "queue must be empty after draining";
     EXPECT_EQ(xgu_log_dropped_count(), 0u);
 }
 

@@ -144,6 +144,7 @@ add_library(xgu_js STATIC
     src/js/v8/V8Platform.cpp
     src/js/v8/V8Runtime.cpp
     src/js/v8/DomBindings.cpp
+    src/js/v8/Timers.cpp
     src/js/v8/UnityBindings.cpp)
 target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_v8)
 
@@ -222,7 +223,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/GoldenImageTest.cpp
         tests/unit/InputTest.cpp
         tests/unit/TextControlTest.cpp
-        tests/unit/BridgeTest.cpp)
+        tests/unit/BridgeTest.cpp
+        tests/unit/TimerTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

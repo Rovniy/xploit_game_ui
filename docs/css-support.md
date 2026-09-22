@@ -82,7 +82,7 @@
 | `Element.style` (свойства через camelCase, сокращённые свойства, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
 | `getBoundingClientRect` | план (Этап 8) |
 | `addEventListener`/`removeEventListener`/`dispatchEvent`, `new Event(type, init)`, `Event` (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`, `target`, `currentTarget`, `eventPhase`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent`, опции `capture`/`once` | **готово** |
-| `setTimeout`/`setInterval`/`clear*`, `requestAnimationFrame`, `performance.now` | план |
+| `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `requestAnimationFrame`/`cancelAnimationFrame`, `performance.now` | **готово** |
 | `console.log/warn/error/info/debug` → Unity Console | **готово** |
 | `element.focus()`, `element.blur()`, `document.activeElement` | **готово** |
 | `input`/`textarea`: `value`, `selectionStart`, `selectionEnd`, `setSelectionRange`, `select()` | **готово** |
@@ -127,3 +127,6 @@
 20. `input` показывает значение одной строкой без прокрутки: текст длиннее поля обрезается по `overflow: hidden`, каретка за край не уводит содержимое.
 21. Аргументы моста проходят через JSON, поэтому действуют правила `JSON.stringify`: функции и `undefined` внутри массива становятся `null`, `NaN` и `Infinity` тоже, циклическая структура отклоняет вызов. Классы C# без атрибута `[Serializable]` сериализуются как `null`.
 22. Перечисления C# передаются в страницу строкой с именем значения, а не числом: сравнивать в JavaScript удобнее по имени.
+23. Таймеры срабатывают ровно раз за кадр, из `xgu_tick`, и измеряют время по часам хоста (`Time.unscaledTimeAsDouble` в Unity). Точность поэтому равна длине кадра, а `setTimeout(fn, 0)` означает «в следующем кадре», а не «как можно скорее в этом». Отдельного потока таймеров нет намеренно: игровой интерфейс живёт в такте игры.
+24. `setTimeout`/`setInterval` принимают только функцию; вариант со строкой кода не поддерживается, потому что рантайм не даёт `eval` внешнему коду.
+25. `performance.now()` отсчитывает время от первого кадра представления, а не от старта процесса.

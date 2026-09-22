@@ -14,7 +14,9 @@ ViewId ViewRegistry::add(std::unique_ptr<View> view) {
     }
     Slot& slot = slots_[index];
     slot.view = std::move(view);
-    return makeId(index, slot.generation);
+    const ViewId id = makeId(index, slot.generation);
+    slot.view->setId(id); // so the view can attribute its log messages
+    return id;
 }
 
 View* ViewRegistry::resolveLocked(ViewId id) const {

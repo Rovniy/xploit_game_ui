@@ -84,6 +84,10 @@ public:
     explicit View(ViewDesc desc);
     ~View();
 
+    // Handle the registry gave this view; zero until it is registered.
+    uint64_t id() const { return id_; }
+    void setId(uint64_t id) { id_ = id; }
+
     View(const View&) = delete;
     View& operator=(const View&) = delete;
 
@@ -133,6 +137,13 @@ public:
     // Hands the page everything the host queued. Runtime thread.
     void pumpBridge();
 
+private:
+    // Tears down the document, its engines and the isolate, so the next load
+    // starts clean.
+    void resetDocument();
+
+public:
+
     // Routes one host input event into the DOM. Returns true when the document
     // changed and a repaint is due.
     bool sendInput(const input::InputEvent& event);
@@ -180,6 +191,7 @@ private:
     std::unique_ptr<paint::Painter> painter_;
     std::unique_ptr<input::InputRouter> inputRouter_;
     bridge::QueueBridge bridge_;
+    uint64_t id_ = 0;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

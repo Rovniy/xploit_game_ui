@@ -119,7 +119,7 @@ namespace Xploit.GameUI
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
-        public static extern bool xgu_log_poll(out int level, out IntPtr message);
+        public static extern bool xgu_log_poll(out int level, out IntPtr message, out ulong view);
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern uint xgu_log_dropped_count();

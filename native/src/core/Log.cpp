@@ -17,7 +17,12 @@ namespace {
 struct QueuedMessage {
     LogLevel level;
     std::string text;
+    uint64_t viewId = 0;
 };
+
+// Which view the calling thread is currently working for; zero means the
+// message belongs to the runtime rather than to a document.
+thread_local uint64_t t_currentViewId = 0;
 
 std::mutex g_mutex;
 LogCallback g_callback = nullptr;
@@ -75,7 +80,7 @@ void Log::write(LogLevel level, std::string_view message) {
                 g_queue.pop_front();
                 ++g_dropped;
             }
-            g_queue.push_back(QueuedMessage{level, std::move(text)});
+            g_queue.push_back(QueuedMessage{level, std::move(text), t_currentViewId});
             return;
         }
         fn = g_callback;
@@ -83,6 +88,10 @@ void Log::write(LogLevel level, std::string_view message) {
     }
     emitDirect(level, text, fn, user);
 }
+
+uint64_t Log::currentViewId() { return t_currentViewId; }
+
+void Log::setCurrentViewId(uint64_t viewId) { t_currentViewId = viewId; }
 
 void Log::writef(LogLevel level, const char* fmt, ...) {
     char stackBuffer[1024];
@@ -135,13 +144,14 @@ bool Log::queueEnabled() {
     return g_queueEnabled;
 }
 
-bool Log::poll(LogLevel& level, std::string& message) {
+bool Log::poll(LogLevel& level, std::string& message, uint64_t& viewId) {
     std::lock_guard lock(g_mutex);
     if (g_queue.empty()) {
         return false;
     }
     level = g_queue.front().level;
     message = std::move(g_queue.front().text);
+    viewId = g_queue.front().viewId;
     g_queue.pop_front();
     return true;
 }

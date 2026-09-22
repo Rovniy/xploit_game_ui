@@ -211,6 +211,7 @@ namespace Xploit.GameUI
             {
                 m_manager.IssuePaint(m_handle);
             }
+            ReportStateChanges();
             var status = Native.xgu_view_status(m_handle);
             if ((status & Native.ViewStatus.DeviceLost) != 0)
             {
@@ -416,6 +417,7 @@ namespace Xploit.GameUI
                 return;
             }
             m_loadedPath = path;
+            m_reportedStage = 0;
             var status = Native.xgu_view_load(m_handle, path);
             if (status != Native.Status.Ok)
             {
@@ -495,6 +497,91 @@ namespace Xploit.GameUI
 
         /// <summary>Lifecycle state of the native view.</summary>
         public ViewState State => IsCreated ? Native.xgu_view_get_state(m_handle) : ViewState.Destroyed;
+
+        /// <summary>
+        /// Raised once the document is parsed and the DOM can be queried, before
+        /// its scripts have run.
+        /// </summary>
+        public event Action<HtmlView> DomReady;
+
+        /// <summary>Raised once the document's scripts have run.</summary>
+        public event Action<HtmlView> JsReady;
+
+        /// <summary>Raised once a frame has been painted and the view accepts input.</summary>
+        public event Action<HtmlView> Interactive;
+
+        /// <summary>
+        /// Raised for every runtime message this view's document produced:
+        /// console output, CSS and HTML warnings, uncaught script errors.
+        /// </summary>
+        public event Action<WebLogMessage> Log;
+
+        internal void RaiseLog(in WebLogMessage message)
+        {
+            try
+            {
+                Log?.Invoke(message);
+            }
+            catch (Exception error)
+            {
+                Debug.LogException(error, this);
+            }
+        }
+
+        // How far the lifecycle has been reported: 0 nothing, 1 DomReady,
+        // 2 JsReady, 3 Interactive. Counted rather than compared against the
+        // state value, because Paused and Destroyed are not later stages.
+        int m_reportedStage;
+
+        // Turns the native state into the events above. Called once a frame.
+        void ReportStateChanges()
+        {
+            var reached = State switch
+            {
+                ViewState.DomReady => 1,
+                ViewState.JsReady => 2,
+                ViewState.Interactive => 3,
+                _ => m_reportedStage,
+            };
+            // A load can pass several stages between two frames, so each one it
+            // went through is reported, in order.
+            while (m_reportedStage < reached)
+            {
+                m_reportedStage++;
+                switch (m_reportedStage)
+                {
+                    case 1: RaiseLifecycle(DomReady); break;
+                    case 2: RaiseLifecycle(JsReady); break;
+                    case 3: RaiseLifecycle(Interactive); break;
+                }
+            }
+        }
+
+        void RaiseLifecycle(Action<HtmlView> handler)
+        {
+            try
+            {
+                handler?.Invoke(this);
+            }
+            catch (Exception error)
+            {
+                Debug.LogException(error, this);
+            }
+        }
+
+        /// <summary>
+        /// Resizes the view's texture. Normally the RectTransform drives this;
+        /// call it when <see cref="SizeFromRectTransform"/> is off.
+        /// </summary>
+        public void Resize(int width, int height, float devicePixelRatio = 0f)
+        {
+            if (devicePixelRatio > 0f)
+            {
+                DevicePixelRatio = devicePixelRatio;
+            }
+            SizeFromRectTransform = false;
+            Size = new Vector2Int(Mathf.Max(1, width), Mathf.Max(1, height));
+        }
 
         // ---- bridge --------------------------------------------------------
 

@@ -123,6 +123,7 @@ bool View::updateStyleAndLayout() {
 }
 
 bool View::loadDocument(std::string_view relativePath) {
+    const LogViewScope logScope(id_);
     if (!assetLoader_) {
         XGU_LOG_ERROR("view \"%s\": no UI root configured; cannot load \"%.*s\"", desc_.name.c_str(),
                       static_cast<int>(relativePath.size()), relativePath.data());
@@ -146,7 +147,9 @@ bool View::loadDocument(std::string_view relativePath) {
 }
 
 bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
+    const LogViewScope logScope(id_);
     setState(ViewState::Loading);
+    resetDocument();
     dom::Document& document = ensureDocument();
     document.setUrl(std::string(baseRelative));
 
@@ -211,12 +214,11 @@ bool View::updateAndPaint() {
     return true;
 }
 
-bool View::reload() {
-    if (loadedPath_.empty()) {
-        return false;
-    }
-    // A reload starts from a clean isolate: scripts must not see old globals.
-    const std::string path = loadedPath_;
+void View::resetDocument() {
+    // A new document must not inherit the previous one's globals, timers, event
+    // listeners or DOM, so everything that belongs to a document goes at once.
+    // The bridge survives: the host registers its handlers on the view, not on
+    // whatever page happens to be loaded.
     disposeJavaScript();
     jsFailed_ = false;
     inputRouter_.reset();
@@ -224,6 +226,14 @@ bool View::reload() {
     layoutEngine_.reset();
     styleEngine_.reset();
     document_.reset();
+}
+
+bool View::reload() {
+    const LogViewScope logScope(id_);
+    if (loadedPath_.empty()) {
+        return false;
+    }
+    const std::string path = loadedPath_;
     return loadDocument(path);
 }
 
