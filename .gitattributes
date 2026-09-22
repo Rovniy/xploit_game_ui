@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.cs text eol=crlf
+*.png binary
+*.jpg binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.asset text
+*.unity text
+*.prefab text
+*.meta text

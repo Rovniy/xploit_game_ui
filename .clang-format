@@ -1,0 +1,22 @@
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"xploit_game_ui/'
+    Priority: 1
+  - Regex: '^"xgu/'
+    Priority: 2
+  - Regex: '^<(include|modules)/'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 4

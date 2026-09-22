@@ -1,0 +1,33 @@
+# Native build outputs
+native/out/
+native/vcpkg_installed/
+build/
+*.user
+*.suo
+.vs/
+.cache/
+CMakeUserPresets.json
+
+# V8 NuGet packages are fetched at build time
+native/third_party/v8/
+
+# Unity
+unity/Sandbox/[Ll]ibrary/
+unity/Sandbox/[Tt]emp/
+unity/Sandbox/[Oo]bj/
+unity/Sandbox/[Bb]uild/
+unity/Sandbox/[Bb]uilds/
+unity/Sandbox/[Ll]ogs/
+unity/Sandbox/[Uu]ser[Ss]ettings/
+unity/Sandbox/*.csproj
+unity/Sandbox/*.sln
+unity/Sandbox/.vsconfig
+unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.dll
+unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.pdb
+unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.dat
+unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.bin
+!unity/Packages/com.xploit.game_ui/Plugins/x86_64/*.meta
+
+# Test artifacts
+native/tests/testdata/golden/*_actual.png
+native/tests/testdata/golden/*_diff.png

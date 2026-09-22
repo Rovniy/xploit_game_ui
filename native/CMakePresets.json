@@ -1,0 +1,50 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/${presetName}",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "environment": {
+        "VCPKG_DEFAULT_BINARY_CACHE": "${sourceDir}/../build/vcpkg-cache"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+        "VCPKG_INSTALL_OPTIONS": "--x-buildtrees-root=${sourceDir}/../build/vcpkg/buildtrees;--downloads-root=${sourceDir}/../build/vcpkg/downloads;--x-packages-root=${sourceDir}/../build/vcpkg/packages;--clean-buildtrees-after-build;--clean-packages-after-build",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "x64-windows-debug",
+      "displayName": "x64 Windows Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "x64-windows-release",
+      "displayName": "x64 Windows Release (RelWithDebInfo)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "x64-windows-debug", "configurePreset": "x64-windows-debug" },
+    { "name": "x64-windows-release", "configurePreset": "x64-windows-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "x64-windows-debug",
+      "configurePreset": "x64-windows-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "x64-windows-release",
+      "configurePreset": "x64-windows-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

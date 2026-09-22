@@ -1,0 +1,13 @@
+{
+  "name": "com.xploit.game_ui",
+  "version": "0.1.0",
+  "displayName": "xploit_game_ui — HTML/CSS/JS Game UI",
+  "description": "Renders HTML/CSS/JavaScript game UI to a GPU texture through the native xploit_game_ui runtime (V8, lexbor, Yoga, Skia). No Gameface, Ultralight or Vuplex.",
+  "unity": "6000.2",
+  "keywords": [ "ui", "html", "css", "javascript", "game-ui" ],
+  "author": { "name": "Xploit" },
+  "dependencies": {
+    "com.unity.ugui": "2.0.0"
+  },
+  "samples": []
+}

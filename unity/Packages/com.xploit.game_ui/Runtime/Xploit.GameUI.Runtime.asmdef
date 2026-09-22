@@ -1,0 +1,14 @@
+{
+  "name": "Xploit.GameUI.Runtime",
+  "rootNamespace": "Xploit.GameUI",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
