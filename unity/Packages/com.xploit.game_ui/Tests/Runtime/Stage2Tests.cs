@@ -26,13 +26,8 @@ namespace Xploit.GameUI.Tests
             return view;
         }
 
-        static IEnumerator Frames(int count)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                yield return null;
-            }
-        }
+        // Frames the runtime needs to pick up posted scripts and drain their logs.
+        const int SettleFrames = 10;
 
         [UnityTest]
         public IEnumerator ExecuteJS_ConsoleLog_ReachesUnityConsole()
@@ -40,8 +35,11 @@ namespace Xploit.GameUI.Tests
             var view = CreateView("js-log");
             LogAssert.Expect(LogType.Log, new Regex("Hello from V8 42 \\{\"ok\":true\\}"));
             view.ExecuteJS("console.log('Hello from V8', 6 * 7, { ok: true })");
-            yield return Frames(5);
-            Assert.AreEqual(Native.ViewState.JsReady, view.State);
+            for (int i = 0; i < SettleFrames; i++)
+            {
+                yield return null;
+            }
+            Assert.AreEqual(ViewState.JsReady, view.State);
             Object.Destroy(view.gameObject);
             yield return null;
         }
@@ -53,7 +51,10 @@ namespace Xploit.GameUI.Tests
             LogAssert.Expect(LogType.Warning, new Regex("careful now"));
             LogAssert.Expect(LogType.Error, new Regex("this is bad"));
             view.ExecuteJS("console.warn('careful now'); console.error('this is bad');");
-            yield return Frames(5);
+            for (int i = 0; i < SettleFrames; i++)
+            {
+                yield return null;
+            }
             Object.Destroy(view.gameObject);
             yield return null;
         }
@@ -64,7 +65,10 @@ namespace Xploit.GameUI.Tests
             var view = CreateView("js-error");
             LogAssert.Expect(LogType.Error, new Regex("Uncaught Error: boom[\\s\\S]*at explode[\\s\\S]*app\\.js:1"));
             view.ExecuteJS("function explode() { throw new Error('boom'); }\nexplode();", "app.js");
-            yield return Frames(5);
+            for (int i = 0; i < SettleFrames; i++)
+            {
+                yield return null;
+            }
             Object.Destroy(view.gameObject);
             yield return null;
         }
@@ -79,7 +83,10 @@ namespace Xploit.GameUI.Tests
             second.ExecuteJS("console.log('second sees ' + typeof marker)");
             LogAssert.Expect(LogType.Log, new Regex("first sees first"));
             first.ExecuteJS("console.log('first sees ' + marker)");
-            yield return Frames(5);
+            for (int i = 0; i < SettleFrames; i++)
+            {
+                yield return null;
+            }
             Object.Destroy(first.gameObject);
             Object.Destroy(second.gameObject);
             yield return null;
@@ -91,7 +98,10 @@ namespace Xploit.GameUI.Tests
             var view = CreateView("js-micro");
             LogAssert.Expect(LogType.Log, new Regex("microtask done"));
             view.ExecuteJS("Promise.resolve().then(() => console.log('microtask done'))");
-            yield return Frames(5);
+            for (int i = 0; i < SettleFrames; i++)
+            {
+                yield return null;
+            }
             Object.Destroy(view.gameObject);
             yield return null;
         }

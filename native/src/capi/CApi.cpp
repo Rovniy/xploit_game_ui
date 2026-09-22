@@ -68,6 +68,25 @@ XGU_API void xgu_set_log_callback(xgu_log_fn fn, void* user) { Log::setCallback(
 
 XGU_API void xgu_tick(double time_seconds) { Runtime::instance().tick(time_seconds); }
 
+XGU_API void xgu_log_queue_enable(bool enabled) { Log::setQueueEnabled(enabled); }
+
+XGU_API bool xgu_log_poll(int* out_level, const char** out_message) {
+    static thread_local std::string buffer;
+    LogLevel level = LogLevel::Info;
+    if (!Log::poll(level, buffer)) {
+        return false;
+    }
+    if (out_level) {
+        *out_level = static_cast<int>(level);
+    }
+    if (out_message) {
+        *out_message = buffer.c_str();
+    }
+    return true;
+}
+
+XGU_API uint32_t xgu_log_dropped_count(void) { return static_cast<uint32_t>(Log::takeDroppedCount()); }
+
 XGU_API xgu_provider xgu_render_provider(void) {
     switch (Runtime::instance().render().activeProvider()) {
     case ProviderKind::D3D12External:

@@ -140,6 +140,19 @@ XGU_API void xgu_set_log_callback(xgu_log_fn fn, void* user);
    Call once per host frame with a monotonic time in seconds. */
 XGU_API void xgu_tick(double time_seconds);
 
+/* Log queueing. With the queue enabled, log messages (including console.* from
+   JavaScript, which runs on the runtime thread) are buffered instead of being
+   passed to the log callback, so the host can report them on its main thread.
+   Disabling flushes whatever is still queued through the callback. */
+XGU_API void xgu_log_queue_enable(bool enabled);
+
+/* Pops the oldest queued message. Returns false when the queue is empty.
+   `out_message` stays valid until the next xgu_log_poll call on this thread. */
+XGU_API bool xgu_log_poll(int* out_level, const char** out_message);
+
+/* Number of messages dropped because the queue overflowed; resets the counter. */
+XGU_API uint32_t xgu_log_dropped_count(void);
+
 /* -------------------------------------------------------------------------- */
 /* Rendering                                                                   */
 /* -------------------------------------------------------------------------- */

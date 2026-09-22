@@ -326,7 +326,7 @@ namespace Xploit.GameUI
         /// <summary>Pauses JavaScript timers and frame processing for this view.</summary>
         public bool Paused
         {
-            get => IsCreated && Native.xgu_view_get_state(m_handle) == Native.ViewState.Paused;
+            get => IsCreated && Native.xgu_view_get_state(m_handle) == ViewState.Paused;
             set
             {
                 if (IsCreated)
@@ -337,7 +337,7 @@ namespace Xploit.GameUI
         }
 
         /// <summary>Lifecycle state of the native view.</summary>
-        public Native.ViewState State => IsCreated ? Native.xgu_view_get_state(m_handle) : Native.ViewState.Destroyed;
+        public ViewState State => IsCreated ? Native.xgu_view_get_state(m_handle) : ViewState.Destroyed;
 
         /// <summary>Sends an event to JavaScript: Unity.on(eventName, ...) (Stage 7).</summary>
         public void Send(string eventName, params object[] args) => throw new NotImplementedException("HtmlView.Send arrives in Stage 7 (bridge).");

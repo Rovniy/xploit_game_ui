@@ -7,6 +7,7 @@
 
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -201,4 +202,38 @@ TEST_F(V8Test, TickPumpsWithoutErrors) {
     xgu_tick(0.033);
     EXPECT_TRUE(anyLogContains("before tick"));
     EXPECT_FALSE(anyLogContains("Uncaught"));
+}
+
+// --- log queue (used by Unity to report runtime-thread logs on the main thread) ---
+
+TEST_F(V8Test, LogQueueBuffersAndDrains) {
+    xgu_log_queue_enable(true);
+    run("console.log('queued one'); console.warn('queued two');");
+
+    std::vector<std::pair<int, std::string>> drained;
+    int level = 0;
+    const char* message = nullptr;
+    while (xgu_log_poll(&level, &message)) {
+        drained.emplace_back(level, message ? message : "");
+    }
+    xgu_log_queue_enable(false);
+
+    ASSERT_GE(drained.size(), 2u);
+    bool sawInfo = false;
+    bool sawWarning = false;
+    for (const auto& [lvl, text] : drained) {
+        if (lvl == XGU_LOG_INFO && text.find("queued one") != std::string::npos) sawInfo = true;
+        if (lvl == XGU_LOG_WARNING && text.find("queued two") != std::string::npos) sawWarning = true;
+    }
+    EXPECT_TRUE(sawInfo);
+    EXPECT_TRUE(sawWarning);
+    EXPECT_FALSE(xgu_log_poll(&level, &message)) << "queue must be empty after draining";
+    EXPECT_EQ(xgu_log_dropped_count(), 0u);
+}
+
+TEST_F(V8Test, DisablingTheQueueFlushesToTheCallback) {
+    xgu_log_queue_enable(true);
+    run("console.log('flushed on disable')");
+    xgu_log_queue_enable(false); // flushes through the capture callback
+    EXPECT_TRUE(anyLogContains("flushed on disable"));
 }

@@ -61,16 +61,6 @@ namespace Xploit.GameUI
             SingleThreaded = 1 << 0,
         }
 
-        public enum ViewState
-        {
-            Created = 0,
-            Loading = 1,
-            DomReady = 2,
-            JsReady = 3,
-            Interactive = 4,
-            Paused = 5,
-            Destroyed = 6,
-        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct InitDesc
@@ -123,6 +113,16 @@ namespace Xploit.GameUI
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xgu_tick(double timeSeconds);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xgu_log_queue_enable([MarshalAs(UnmanagedType.I1)] bool enabled);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool xgu_log_poll(out int level, out IntPtr message);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint xgu_log_dropped_count();
 
         // ---- rendering -----------------------------------------------------
 

@@ -91,6 +91,9 @@ namespace Xploit.GameUI
             m_renderEventFunc = Native.xgu_get_render_event_func();
             m_eventBase = Native.xgu_render_event_base();
             m_commandBuffer = new CommandBuffer { name = "xploit_game_ui" };
+            // From here on native log messages (including console.* from the runtime
+            // thread) are queued and reported from DrainLogs on the main thread.
+            Native.xgu_log_queue_enable(true);
             m_nativeReady = true;
             if (HtmlView.EnableDebug)
             {
@@ -119,6 +122,7 @@ namespace Xploit.GameUI
             }
             // One runtime frame for every view (JS message loop; later timers, layout, paint).
             Native.xgu_tick(Time.unscaledTimeAsDouble);
+            DrainLogs();
             for (int i = 0; i < m_views.Count; i++)
             {
                 var view = m_views[i];
@@ -126,6 +130,40 @@ namespace Xploit.GameUI
                 {
                     view.Tick();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Reports queued native log messages through Debug.Log on the main thread.
+        /// Bounded per frame so a runaway script cannot stall the editor.
+        /// </summary>
+        void DrainLogs()
+        {
+            const int maxPerFrame = 256;
+            for (int i = 0; i < maxPerFrame; i++)
+            {
+                if (!Native.xgu_log_poll(out var level, out var messagePtr) || messagePtr == IntPtr.Zero)
+                {
+                    break;
+                }
+                var message = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(messagePtr);
+                switch ((Native.LogLevel)level)
+                {
+                    case Native.LogLevel.Error:
+                        Debug.LogError(message);
+                        break;
+                    case Native.LogLevel.Warning:
+                        Debug.LogWarning(message);
+                        break;
+                    default:
+                        Debug.Log(message);
+                        break;
+                }
+            }
+            var dropped = Native.xgu_log_dropped_count();
+            if (dropped > 0)
+            {
+                Debug.LogWarning($"[xploit_game_ui] {dropped} log message(s) dropped (queue overflow)");
             }
         }
 
@@ -190,6 +228,11 @@ namespace Xploit.GameUI
             UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
 #endif
             DestroyAllViews();
+            if (m_nativeReady)
+            {
+                DrainLogs();
+                Native.xgu_log_queue_enable(false); // back to the direct IUnityLog sink
+            }
             m_commandBuffer?.Release();
             m_commandBuffer = null;
             if (s_instance == this)

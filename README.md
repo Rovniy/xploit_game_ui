@@ -34,7 +34,7 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 .\native\out\x64-windows-release\bin\xgu_cli.exe js script.js                           # выполнить JS в V8 (console.* в stdout/stderr)
 ```
 
-Статус: Этапы 0–1 завершены, Этап 2 (V8) реализован в native и ждёт проверки в Unity (см. [docs/PLAN.md](docs/PLAN.md)).
+Статус: Этапы 0–2 завершены (native 33/33, Unity PlayMode 12/12). В работе Этап 3 — HTML/DOM. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 
