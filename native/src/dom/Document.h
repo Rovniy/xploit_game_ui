@@ -67,6 +67,13 @@ public:
     FocusController* focusController() const { return focus_; }
     void setFocusController(FocusController* controller) { focus_ = controller; }
 
+    // Set by Node::markDirty whenever anything in this document changes, and
+    // cleared once a frame has been produced from it. It is what lets an idle
+    // view skip the whole restyle, layout, record and rasterise chain.
+    bool dirty() const { return dirty_; }
+    void noteDirty() { dirty_ = true; }
+    void clearDirtyFlag() { dirty_ = false; }
+
     // Where the geometry and scroll properties read from; the layout engine
     // installs itself here.
     const BoxProvider* boxProvider() const { return boxes_; }
@@ -104,6 +111,7 @@ private:
     const css::ElementStateProvider* elementState_ = nullptr;
     FocusController* focus_ = nullptr;
     const BoxProvider* boxes_ = nullptr;
+    bool dirty_ = true;
     uint64_t treeVersion_ = 0;
     // Documents may hold several elements with the same id; the first in tree
     // order wins, matching browsers.

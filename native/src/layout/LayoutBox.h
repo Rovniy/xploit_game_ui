@@ -72,6 +72,14 @@ public:
     LayoutBox& addAtomicInline(std::unique_ptr<LayoutBox> box);
     const std::vector<std::unique_ptr<LayoutBox>>& atomicInlines() const { return atomicInlines_; }
 
+    // Where this box landed on screen the last time it was painted, in device
+    // pixels. The painter compares it with the new one to work out what part of
+    // the surface has to be redrawn.
+    const Rect& lastPaintedBounds() const { return lastPaintedBounds_; }
+    void setLastPaintedBounds(const Rect& bounds) { lastPaintedBounds_ = bounds; }
+    bool hasPaintedBefore() const { return paintedBefore_; }
+    void markPainted() { paintedBefore_ = true; }
+
     // --- scrolling -----------------------------------------------------------
     // How far the content is scrolled, in CSS pixels. Applied when painting and
     // hit testing rather than baked into the frames, so scrolling never has to
@@ -121,6 +129,8 @@ private:
     float scrollTop_ = 0.0f;
     float scrollWidth_ = 0.0f;
     float scrollHeight_ = 0.0f;
+    Rect lastPaintedBounds_;
+    bool paintedBefore_ = false;
 };
 
 } // namespace xgu::layout

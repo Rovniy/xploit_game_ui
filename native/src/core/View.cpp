@@ -7,6 +7,8 @@
 #include "html/LexborHtmlParser.h"
 #include "js/v8/V8Runtime.h"
 #include "input/InputRouter.h"
+
+#include <chrono>
 #include "layout/LayoutEngine.h"
 #include "paint/Painter.h"
 #include "text/FontManager.h"
@@ -43,9 +45,17 @@ View::~View() {
 }
 
 void View::requestResize(uint32_t width, uint32_t height, float dpr) {
+    const bool changed = width_.load(std::memory_order_acquire) != width ||
+                         height_.load(std::memory_order_acquire) != height ||
+                         dpr_.load(std::memory_order_acquire) != dpr;
     width_.store(width, std::memory_order_release);
     height_.store(height, std::memory_order_release);
     dpr_.store(dpr, std::memory_order_release);
+    if (changed) {
+        // The document has not changed, but the surface has, so the next frame
+        // must be produced even though nothing is dirty.
+        frameInvalid_ = true;
+    }
 }
 
 uint32_t View::readStatus(uint32_t clearMask) {
@@ -118,8 +128,15 @@ bool View::updateStyleAndLayout() {
     // Layout works in CSS pixels; the painter scales to device pixels.
     const float cssWidth = static_cast<float>(width()) / dpr;
     const float cssHeight = static_cast<float>(height()) / dpr;
+
+    const auto styleStart = std::chrono::steady_clock::now();
     styleEngine_->recalcStyles(cssWidth, cssHeight, frameTime_);
+    const auto layoutStart = std::chrono::steady_clock::now();
     layoutEngine_->layout(cssWidth, cssHeight, dpr);
+    const auto layoutEnd = std::chrono::steady_clock::now();
+
+    stats_.styleMs = std::chrono::duration<double, std::milli>(layoutStart - styleStart).count();
+    stats_.layoutMs = std::chrono::duration<double, std::milli>(layoutEnd - layoutStart).count();
     return true;
 }
 
@@ -199,15 +216,37 @@ bool View::sendInput(const input::InputEvent& event) {
 }
 
 bool View::updateAndPaint() {
-    if (!updateStyleAndLayout() || !painter_) {
+    if (!document_ || !painter_) {
+        ++stats_.skipped;
+        return false;
+    }
+    // An idle document costs nothing: no restyle, no layout, no recording and
+    // no rasterising. Animations keep asking for frames on their own.
+    const bool animating = styleEngine_ && styleEngine_->hasRunningAnimations();
+    if (!frameInvalid_ && !document_->dirty() && !animating) {
+        ++stats_.skipped;
+        return false;
+    }
+    if (!updateStyleAndLayout()) {
+        ++stats_.skipped;
         return false;
     }
     const float dpr = devicePixelRatio() > 0.0f ? devicePixelRatio() : 1.0f;
+    const auto paintStart = std::chrono::steady_clock::now();
     render::DisplayList frame = painter_->paint(static_cast<int>(width()), static_cast<int>(height()), dpr,
-                                                nextFrameId());
+                                                nextFrameId(), frameInvalid_);
+    stats_.paintMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - paintStart).count();
     if (!frame.valid()) {
+        ++stats_.skipped;
         return false;
     }
+    ++stats_.published;
+    stats_.damageX = frame.dirtyPx.left();
+    stats_.damageY = frame.dirtyPx.top();
+    stats_.damageWidth = frame.dirtyPx.width();
+    stats_.damageHeight = frame.dirtyPx.height();
+    frameInvalid_ = false;
+    document_->clearDirtyFlag();
     mailbox_.publish(std::move(frame));
     if (state() == ViewState::JsReady) {
         setState(ViewState::Interactive);

@@ -693,6 +693,38 @@ namespace Xploit.GameUI
             m_asyncFunctions.Remove(name);
         }
 
+        /// <summary>
+        /// What the view's last frame cost, and how many frames it has produced.
+        /// An idle document produces none at all.
+        /// </summary>
+        public bool TryGetFrameStats(out double styleMs, out double layoutMs, out double paintMs, out double rasterMs,
+            out ulong published, out ulong skipped, out RectInt damage)
+        {
+            styleMs = layoutMs = paintMs = rasterMs = 0;
+            published = skipped = 0;
+            damage = default;
+            if (!IsCreated)
+            {
+                return false;
+            }
+            var stats = new Native.FrameStats
+            {
+                StructSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.FrameStats>(),
+            };
+            if (!Native.xgu_view_get_stats(m_handle, ref stats))
+            {
+                return false;
+            }
+            styleMs = stats.StyleMs;
+            layoutMs = stats.LayoutMs;
+            paintMs = stats.PaintMs;
+            rasterMs = stats.RasterMs;
+            published = stats.FramesPublished;
+            skipped = stats.FramesSkipped;
+            damage = new RectInt(stats.DamageX, stats.DamageY, stats.DamageWidth, stats.DamageHeight);
+            return true;
+        }
+
         /// <summary>Messages dropped because a bridge queue filled up.</summary>
         public ulong BridgeDroppedCount => IsCreated ? Native.xgu_view_bridge_dropped(m_handle) : 0;
 

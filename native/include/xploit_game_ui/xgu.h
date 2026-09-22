@@ -208,6 +208,25 @@ XGU_API xgu_status xgu_view_load_html(xgu_view_id view, const char* html, const 
    JavaScript isolate. */
 XGU_API xgu_status xgu_view_reload(xgu_view_id view);
 
+/* What the view's last frame cost, and how many it has produced. Times are in
+   milliseconds and cover the most recent frame only. */
+typedef struct xgu_frame_stats {
+    uint32_t struct_size;
+    uint64_t frames_published; /* frames handed to the renderer */
+    uint64_t frames_skipped;   /* ticks that produced nothing */
+    double style_ms;
+    double layout_ms;
+    double paint_ms;  /* recording the display list */
+    double raster_ms; /* software provider only; the GPU path is asynchronous */
+    /* The region the last frame actually redrew, in device pixels. */
+    int32_t damage_x;
+    int32_t damage_y;
+    int32_t damage_width;
+    int32_t damage_height;
+} xgu_frame_stats;
+
+XGU_API bool xgu_view_get_stats(xgu_view_id view, xgu_frame_stats* out_stats);
+
 /* Restyles, lays out and records a frame for the view. The host normally does
    not call this: xgu_tick repaints whatever changed. It is here for tools and
    tests that need a frame at a known point. */

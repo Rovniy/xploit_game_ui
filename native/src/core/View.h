@@ -148,13 +148,36 @@ public:
     // changed and a repaint is due.
     bool sendInput(const input::InputEvent& event);
 
+    // What the last frames cost, so the host and the benchmark can see where
+    // the time goes without a profiler attached.
+    struct FrameStats {
+        uint64_t published = 0; // frames handed to the renderer
+        uint64_t skipped = 0;   // ticks that produced nothing
+        double styleMs = 0.0;
+        double layoutMs = 0.0;
+        double paintMs = 0.0;
+        double rasterMs = 0.0;
+        // The region the last published frame redrew, in device pixels.
+        int32_t damageX = 0;
+        int32_t damageY = 0;
+        int32_t damageWidth = 0;
+        int32_t damageHeight = 0;
+    };
+    const FrameStats& frameStats() const { return stats_; }
+    void recordRasterMs(double milliseconds) { stats_.rasterMs = milliseconds; }
+
     // Recomputes styles and lays the document out for the current size.
     // Returns false when there is nothing to lay out.
     bool updateStyleAndLayout();
 
     // Styles, lays out and records a frame into the mailbox. Returns false when
-    // there is nothing to show.
+    // there is nothing to show, which includes the case where nothing has
+    // changed since the last frame.
     bool updateAndPaint();
+
+    // Forces the next updateAndPaint to produce a frame even when the document
+    // looks unchanged; a resize or a new surface needs one.
+    void invalidateFrame() { frameInvalid_ = true; }
 
     // The host's clock for this frame; transitions and animations measure from
     // it, so it is the same time the JavaScript timers see.
@@ -198,6 +221,8 @@ private:
     bridge::QueueBridge bridge_;
     uint64_t id_ = 0;
     double frameTime_ = 0.0;
+    FrameStats stats_;
+    bool frameInvalid_ = true;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

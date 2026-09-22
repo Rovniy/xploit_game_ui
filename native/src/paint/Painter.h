@@ -35,8 +35,11 @@ public:
     Painter(dom::Document& document, layout::LayoutEngine& layout);
 
     // Records the whole viewport. `widthPx`/`heightPx` are device pixels and
-    // `dpr` converts the CSS pixels the layout works in.
-    render::DisplayList paint(int widthPx, int heightPx, float dpr, uint64_t frameId);
+    // `dpr` converts the CSS pixels the layout works in. The display list also
+    // carries the region that changed since the previous frame, so the provider
+    // only has to rasterise that much; `fullDamage` forces the whole surface,
+    // which a resize or a new surface needs.
+    render::DisplayList paint(int widthPx, int heightPx, float dpr, uint64_t frameId, bool fullDamage = false);
 
     // Paints into a canvas the caller owns (golden tests, the CLI).
     void paintInto(SkCanvas& canvas);
@@ -51,6 +54,9 @@ private:
     void paintShadows(SkCanvas& canvas, layout::LayoutBox& box);
     void paintReplaced(SkCanvas& canvas, layout::LayoutBox& box);
     void paintChildren(SkCanvas& canvas, layout::LayoutBox& box);
+    // Notes where a box landed this frame and adds it to the damage when that
+    // differs from where it was, or when its element asked for a repaint.
+    void trackDamage(SkCanvas& canvas, layout::LayoutBox& box);
     // A thin thumb for each axis that actually overflows.
     void paintScrollbars(SkCanvas& canvas, layout::LayoutBox& box);
     // Selection highlight (before the glyphs) and caret (after them) for a
@@ -60,6 +66,9 @@ private:
 
     dom::Document& document_;
     layout::LayoutEngine& layout_;
+    // Union of what changed this frame, in device pixels.
+    SkIRect damage_ = SkIRect::MakeEmpty();
+    bool damageEverything_ = true;
 };
 
 } // namespace xgu::paint

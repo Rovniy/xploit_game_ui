@@ -1,5 +1,7 @@
 #include "render/RenderSystem.h"
 
+#include <chrono>
+
 #include "core/Log.h"
 #include "render/skia/CpuTextureProvider.h"
 #include "render/skia/D3D12GrContext.h"
@@ -155,7 +157,10 @@ bool RenderSystem::paintIfCpu(View& view) {
     if (!frame || !frame->valid()) {
         return false;
     }
-    return cpu_->paint(view, *frame);
+    const auto start = std::chrono::steady_clock::now();
+    const bool painted = cpu_->paint(view, *frame);
+    view.recordRasterMs(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    return painted;
 }
 
 void RenderSystem::handleRenderEvent(int eventId, void* data) {

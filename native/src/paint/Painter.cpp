@@ -43,11 +43,16 @@ SkColor toSkColor(const css::Color& color) { return static_cast<SkColor>(color.t
 Painter::Painter(dom::Document& document, layout::LayoutEngine& layout)
     : document_(document), layout_(layout) {}
 
-render::DisplayList Painter::paint(int widthPx, int heightPx, float dpr, uint64_t frameId) {
+render::DisplayList Painter::paint(int widthPx, int heightPx, float dpr, uint64_t frameId, bool fullDamage) {
     render::DisplayList list;
     if (widthPx <= 0 || heightPx <= 0 || dpr <= 0.0f || !layout_.root()) {
         return list;
     }
+    damage_ = SkIRect::MakeEmpty();
+    // A rebuilt box tree loses the boxes that went away, and their pixels are
+    // still on the surface, so nothing per-box can be trusted that frame.
+    damageEverything_ = fullDamage || layout_.rebuiltTree();
+
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(SkRect::MakeIWH(widthPx, heightPx));
     canvas->clear(SK_ColorTRANSPARENT);
@@ -55,7 +60,17 @@ render::DisplayList Painter::paint(int widthPx, int heightPx, float dpr, uint64_
     paintInto(*canvas);
 
     list.picture = recorder.finishRecordingAsPicture();
-    list.dirtyPx = SkIRect::MakeWH(widthPx, heightPx);
+    const SkIRect whole = SkIRect::MakeWH(widthPx, heightPx);
+    if (damageEverything_) {
+        list.dirtyPx = whole;
+    } else {
+        // One pixel of slack absorbs the rounding of anti-aliased edges.
+        damage_.outset(1, 1);
+        if (!damage_.intersect(whole)) {
+            damage_ = SkIRect::MakeEmpty();
+        }
+        list.dirtyPx = damage_;
+    }
     list.sizePx = SkISize::Make(widthPx, heightPx);
     list.devicePixelRatio = dpr;
     list.frameId = frameId;
@@ -152,8 +167,62 @@ void Painter::paintScrollbars(SkCanvas& canvas, LayoutBox& box) {
     }
 }
 
+void Painter::trackDamage(SkCanvas& canvas, LayoutBox& box) {
+    // The bounds and the dirty bits are recorded even on a frame that redraws
+    // everything: without that, the next frame would see every box as brand new
+    // and damage the whole surface again.
+    const ComputedStyle* style = box.style();
+    if (!style) {
+        return;
+    }
+
+    // What the box can touch: its border box, grown by the reach of its shadows.
+    SkRect local = toSkRect(box.borderBox());
+    for (const css::BoxShadow& shadow : style->boxShadow) {
+        if (shadow.inset) {
+            continue;
+        }
+        SkRect shape = toSkRect(box.borderBox());
+        shape.outset(shadow.spread + shadow.blur, shadow.spread + shadow.blur);
+        shape.offset(shadow.offsetX, shadow.offsetY);
+        local.join(shape);
+    }
+
+    // The canvas already carries the device scale, every ancestor transform and
+    // every clip, so mapping through it gives exactly where this lands.
+    SkRect mapped = canvas.getTotalMatrix().mapRect(local);
+    SkIRect device = mapped.roundOut();
+    if (!device.intersect(canvas.getDeviceClipBounds())) {
+        device = SkIRect::MakeEmpty();
+    }
+
+    const layout::Rect bounds{static_cast<float>(device.left()), static_cast<float>(device.top()),
+                              static_cast<float>(device.width()), static_cast<float>(device.height())};
+    const bool moved = !box.hasPaintedBefore() || !(bounds == box.lastPaintedBounds());
+    bool repaint = false;
+    if (dom::Element* element = box.element()) {
+        repaint = (element->dirtyBits() & (dom::kDirtyPaintSelf | dom::kDirtyPaintChildren)) != 0;
+        // Painting is what these bits were asking for, so they are answered now.
+        // Nothing else reads them, and leaving them set would mark every element
+        // dirty for ever and damage the whole surface on every frame.
+        element->clearDirty(dom::kDirtyPaintSelf | dom::kDirtyPaintChildren);
+    }
+    if ((moved || repaint) && !damageEverything_) {
+        if (box.hasPaintedBefore()) {
+            // Both where it was and where it is now have to be redrawn.
+            const layout::Rect& before = box.lastPaintedBounds();
+            damage_.join(SkIRect::MakeXYWH(static_cast<int>(before.x), static_cast<int>(before.y),
+                                           static_cast<int>(before.width), static_cast<int>(before.height)));
+        }
+        damage_.join(device);
+    }
+    box.setLastPaintedBounds(bounds);
+    box.markPainted();
+}
+
 void Painter::paintDecorations(SkCanvas& canvas, LayoutBox& box) {
     const ComputedStyle& style = *box.style();
+    trackDamage(canvas, box);
     if (box.borderBox().isEmpty()) {
         return;
     }

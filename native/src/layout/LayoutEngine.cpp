@@ -633,8 +633,9 @@ void LayoutEngine::layout(float viewportWidth, float viewportHeight, float devic
         root_.reset();
         return;
     }
-    if (treeDirty_ || !root_ || root_->element() != documentElement ||
-        (documentElement->dirtyBits() & dom::kDirtyLayoutTree) != 0) {
+    rebuiltTree_ = treeDirty_ || !root_ || root_->element() != documentElement ||
+                   (documentElement->dirtyBits() & dom::kDirtyLayoutTree) != 0;
+    if (rebuiltTree_) {
         rebuildTree();
     }
     if (!root_) {

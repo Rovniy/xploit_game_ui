@@ -39,6 +39,11 @@ public:
     // Forces a full rebuild on the next layout() call.
     void invalidateTree() { treeDirty_ = true; }
 
+    // True when the last layout threw the box tree away and built a new one.
+    // Boxes that disappeared leave pixels behind, so the painter cannot trust
+    // its per-box damage that frame.
+    bool rebuiltTree() const { return rebuiltTree_; }
+
 private:
     void rebuildTree();
     std::unique_ptr<LayoutBox> buildBox(dom::Element& element);
@@ -58,6 +63,7 @@ private:
     float viewportHeight_ = 0.0f;
     float devicePixelRatio_ = 1.0f;
     bool treeDirty_ = true;
+    bool rebuiltTree_ = false;
 };
 
 } // namespace xgu::layout

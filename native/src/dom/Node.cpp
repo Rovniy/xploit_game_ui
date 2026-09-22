@@ -186,6 +186,11 @@ void Node::setTextContent(std::string_view text) {
 
 void Node::markDirty(uint8_t bits) {
     dirty_ = static_cast<uint8_t>(dirty_ | bits);
+    if (document_) {
+        // One flag on the document answers "does this frame need producing at
+        // all", without walking the tree to find out.
+        document_->noteDirty();
+    }
     // Propagate the "children changed" flags towards the root so a style or
     // layout pass can skip clean subtrees.
     constexpr uint8_t kPropagated = kDirtyStyleChildren | kDirtyPaintChildren | kDirtyLayoutTree;

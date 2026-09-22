@@ -335,6 +335,28 @@ XGU_API uint64_t xgu_view_bridge_dropped(xgu_view_id view) {
     return resolved ? static_cast<uint64_t>(resolved->bridge().droppedCount()) : 0;
 }
 
+XGU_API bool xgu_view_get_stats(xgu_view_id view, xgu_frame_stats* out_stats) {
+    if (!Runtime::instance().initialized() || !out_stats || out_stats->struct_size < sizeof(xgu_frame_stats)) {
+        return false;
+    }
+    View* resolved = Runtime::instance().views().resolve(static_cast<ViewId>(view));
+    if (!resolved) {
+        return false;
+    }
+    const View::FrameStats& stats = resolved->frameStats();
+    out_stats->frames_published = stats.published;
+    out_stats->frames_skipped = stats.skipped;
+    out_stats->style_ms = stats.styleMs;
+    out_stats->layout_ms = stats.layoutMs;
+    out_stats->paint_ms = stats.paintMs;
+    out_stats->raster_ms = stats.rasterMs;
+    out_stats->damage_x = stats.damageX;
+    out_stats->damage_y = stats.damageY;
+    out_stats->damage_width = stats.damageWidth;
+    out_stats->damage_height = stats.damageHeight;
+    return true;
+}
+
 XGU_API xgu_status xgu_view_repaint(xgu_view_id view) {
     if (!Runtime::instance().initialized()) {
         return XGU_ERR_NOT_INITIALIZED;

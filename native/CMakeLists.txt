@@ -231,7 +231,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/TimerTest.cpp
         tests/unit/ScrollTest.cpp
         tests/unit/GradientTest.cpp
-        tests/unit/AnimationTest.cpp)
+        tests/unit/AnimationTest.cpp
+        tests/unit/DamageTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

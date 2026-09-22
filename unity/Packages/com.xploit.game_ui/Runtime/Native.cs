@@ -322,6 +322,28 @@ namespace Xploit.GameUI
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern ulong xgu_view_bridge_dropped(ulong view);
 
+        // ---- diagnostics ---------------------------------------------------
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FrameStats
+        {
+            public uint StructSize;
+            public ulong FramesPublished;
+            public ulong FramesSkipped;
+            public double StyleMs;
+            public double LayoutMs;
+            public double PaintMs;
+            public double RasterMs;
+            public int DamageX;
+            public int DamageY;
+            public int DamageWidth;
+            public int DamageHeight;
+        }
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool xgu_view_get_stats(ulong view, ref FrameStats stats);
+
         // ---- helpers -------------------------------------------------------
 
         public static string Version()

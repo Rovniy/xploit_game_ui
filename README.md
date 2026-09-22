@@ -34,11 +34,12 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 .\native\out\x64-windows-release\bin\xgu_cli.exe js script.js                           # выполнить JS в V8 (console.* в stdout/stderr)
 .\native\out\x64-windows-release\bin\xgu_cli.exe layout page.html --width 800 --height 600  # дамп дерева боксов в JSON
 .\native\out\x64-windows-release\bin\xgu_cli.exe render page.html out.png --width 800 --height 500  # отрисовать страницу в PNG
+.\native\out\x64-windows-release\bin\xgu_cli.exe bench page.html --frames 300                        # стоимость кадра по фазам
 ```
 
 Эталонные изображения golden-тестов перегенерируются переменной окружения `XGU_UPDATE_GOLDEN=1`; при расхождении тест пишет рядом `<имя>.actual.png` и `<имя>.diff.png`.
 
-Статус: Этапы 0–8 завершены, поверх них закрыты функциональные пробелы — прокрутка, геометрия элемента, градиенты, переходы и анимации (native 300/300, Unity PlayMode 46/46 на D3D12). Этап 9 (UI в мировом пространстве) пропущен по решению заказчика. Следующий — Этап 10: оптимизация. См. [docs/PLAN.md](docs/PLAN.md).
+Статус: все этапы плана пройдены (native 310/310, Unity PlayMode 46/46 на D3D12). Этап 9 (UI в мировом пространстве) пропущен по решению заказчика. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 

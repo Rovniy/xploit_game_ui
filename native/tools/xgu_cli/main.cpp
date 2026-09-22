@@ -11,6 +11,9 @@
 //   xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]
 //       Loads, lays out and paints the page, then writes the result as PNG
 //       (used by the golden image tests).
+//   xgu_cli bench <page.html> [--frames N] [--width W] [--height H]
+//       Ticks the page N times and reports what a frame costs, split into
+//       style, layout, recording and rasterising.
 //
 // A later stage adds `run <html>` for scripted input.
 
@@ -31,6 +34,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -48,7 +53,8 @@ void usage() {
                  "  xgu_cli --test-frame <out.png> [--width W] [--height H] [--dpr F]\n"
                  "  xgu_cli js <script.js> [--origin NAME]\n"
                  "  xgu_cli layout <page.html> [--width W] [--height H] [--dpr F]\n"
-                 "  xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]\n",
+                 "  xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]\n"
+                 "  xgu_cli bench <page.html> [--frames N] [--width W] [--height H]\n",
                  xgu_version());
 }
 
@@ -327,6 +333,115 @@ int commandLayout(int argc, char** argv) {
     return result == 0 && g_errorCount > 0 ? 1 : result;
 }
 
+// Sorted timings, so the report can quote a median rather than an average that
+// one slow frame skews.
+double percentile(std::vector<double> values, double fraction) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    std::sort(values.begin(), values.end());
+    const size_t index = static_cast<size_t>(fraction * static_cast<double>(values.size() - 1));
+    return values[index];
+}
+
+int commandBench(int argc, char** argv) {
+    std::string path;
+    uint32_t width = 800;
+    uint32_t height = 600;
+    int frames = 240;
+    for (int i = 2; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--width" && i + 1 < argc) {
+            width = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--height" && i + 1 < argc) {
+            height = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--frames" && i + 1 < argc) {
+            frames = std::atoi(argv[++i]);
+        } else if (path.empty()) {
+            path = arg;
+        } else {
+            usage();
+            return 1;
+        }
+    }
+    if (path.empty() || frames <= 0) {
+        usage();
+        return 1;
+    }
+
+    const std::filesystem::path full = std::filesystem::absolute(path);
+    const std::string uiRoot = full.parent_path().string();
+    const std::string fileName = full.filename().string();
+
+    if (!initialize()) {
+        return 4;
+    }
+    xgu_view_desc desc{};
+    desc.struct_size = sizeof(desc);
+    desc.width = width;
+    desc.height = height;
+    desc.device_pixel_ratio = 1.0f;
+    desc.format = XGU_FORMAT_RGBA8;
+    desc.provider = XGU_PROVIDER_CPU;
+    desc.ui_root = uiRoot.c_str();
+    desc.name = "cli-bench";
+    const xgu_view_id view = xgu_view_create(&desc);
+    if (view == XGU_INVALID_VIEW || xgu_view_load(view, fileName.c_str()) != XGU_OK) {
+        std::fprintf(stderr, "load failed\n");
+        return 5;
+    }
+
+    std::vector<double> total;
+    std::vector<double> style;
+    std::vector<double> layout;
+    std::vector<double> paint;
+    std::vector<double> raster;
+    total.reserve(static_cast<size_t>(frames));
+
+    // A steady 60 Hz clock, so animations and timers advance as they would in a
+    // game rather than as fast as the loop runs.
+    for (int i = 0; i < frames; ++i) {
+        const auto start = std::chrono::steady_clock::now();
+        xgu_tick(static_cast<double>(i) / 60.0);
+        const double elapsed =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+        xgu_frame_stats stats{};
+        stats.struct_size = sizeof(stats);
+        if (!xgu_view_get_stats(view, &stats)) {
+            break;
+        }
+        total.push_back(elapsed);
+        style.push_back(stats.style_ms);
+        layout.push_back(stats.layout_ms);
+        paint.push_back(stats.paint_ms);
+        raster.push_back(stats.raster_ms);
+    }
+
+    xgu_frame_stats stats{};
+    stats.struct_size = sizeof(stats);
+    xgu_view_get_stats(view, &stats);
+
+    std::printf("%s  %ux%u  %d frames\n", fileName.c_str(), width, height, frames);
+    std::printf("  published %llu, skipped %llu\n", static_cast<unsigned long long>(stats.frames_published),
+                static_cast<unsigned long long>(stats.frames_skipped));
+    std::printf("  last damage %dx%d at %d,%d\n", stats.damage_width, stats.damage_height, stats.damage_x,
+                stats.damage_y);
+    const auto report = [](const char* name, const std::vector<double>& values) {
+        std::printf("  %-8s median %6.3f ms   p95 %6.3f ms   max %6.3f ms\n", name, percentile(values, 0.5),
+                    percentile(values, 0.95), percentile(values, 1.0));
+    };
+    report("frame", total);
+    report("style", style);
+    report("layout", layout);
+    report("paint", paint);
+    report("raster", raster);
+
+    xgu_view_destroy(view);
+    xgu_shutdown();
+    return 0;
+}
+
 int commandRender(int argc, char** argv) {
     std::string path;
     std::string output;
@@ -411,6 +526,9 @@ int main(int argc, char** argv) {
     }
     if (argc >= 2 && std::strcmp(argv[1], "render") == 0) {
         return commandRender(argc, argv);
+    }
+    if (argc >= 2 && std::strcmp(argv[1], "bench") == 0) {
+        return commandBench(argc, argv);
     }
     if (argc >= 2 && std::strcmp(argv[1], "--test-frame") == 0) {
         return commandTestFrame(argc, argv);

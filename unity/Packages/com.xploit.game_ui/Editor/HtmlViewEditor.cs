@@ -155,6 +155,14 @@ namespace Xploit.GameUI.Editor
                 {
                     EditorGUILayout.TextField("Bridge Dropped", view.BridgeDroppedCount.ToString());
                 }
+                if (view.TryGetFrameStats(out var style, out var layout, out var paint, out var raster,
+                        out var published, out var skipped, out var damage))
+                {
+                    EditorGUILayout.TextField("Frames", $"{published} drawn, {skipped} skipped");
+                    EditorGUILayout.TextField("Last frame",
+                        $"style {style:0.00} ms, layout {layout:0.00} ms, record {paint:0.00} ms");
+                    EditorGUILayout.TextField("Redrawn", $"{damage.width}x{damage.height} at {damage.x},{damage.y}");
+                }
             }
 
             HtmlView.EnableDebug = EditorGUILayout.Toggle(
