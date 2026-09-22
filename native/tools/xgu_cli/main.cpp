@@ -8,8 +8,11 @@
 //   xgu_cli layout <page.html> [--width W] [--height H] [--dpr F]
 //       Loads the page, styles and lays it out, and prints the box tree as JSON
 //       (used by the layout golden tests in CI).
+//   xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]
+//       Loads, lays out and paints the page, then writes the result as PNG
+//       (used by the golden image tests).
 //
-// Later stages add `render <html> <png>` and `run <html>`.
+// A later stage adds `run <html>` for scripted input.
 
 #include "core/Runtime.h"
 #include "css/ComputedStyle.h"
@@ -44,7 +47,8 @@ void usage() {
                  "usage:\n"
                  "  xgu_cli --test-frame <out.png> [--width W] [--height H] [--dpr F]\n"
                  "  xgu_cli js <script.js> [--origin NAME]\n"
-                 "  xgu_cli layout <page.html> [--width W] [--height H] [--dpr F]\n",
+                 "  xgu_cli layout <page.html> [--width W] [--height H] [--dpr F]\n"
+                 "  xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]\n",
                  xgu_version());
 }
 
@@ -323,6 +327,79 @@ int commandLayout(int argc, char** argv) {
     return result == 0 && g_errorCount > 0 ? 1 : result;
 }
 
+int commandRender(int argc, char** argv) {
+    std::string path;
+    std::string output;
+    uint32_t width = 800;
+    uint32_t height = 600;
+    float dpr = 1.0f;
+    for (int i = 2; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--width" && i + 1 < argc) {
+            width = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--height" && i + 1 < argc) {
+            height = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--dpr" && i + 1 < argc) {
+            dpr = static_cast<float>(std::atof(argv[++i]));
+        } else if (path.empty()) {
+            path = arg;
+        } else if (output.empty()) {
+            output = arg;
+        } else {
+            usage();
+            return 1;
+        }
+    }
+    if (path.empty() || output.empty() || width == 0 || height == 0) {
+        usage();
+        return 1;
+    }
+
+    const std::filesystem::path full = std::filesystem::absolute(path);
+    const std::string uiRoot = full.parent_path().string();
+    const std::string fileName = full.filename().string();
+
+    if (!initialize()) {
+        return 4;
+    }
+    xgu_view_desc desc{};
+    desc.struct_size = sizeof(desc);
+    desc.width = width;
+    desc.height = height;
+    desc.device_pixel_ratio = dpr;
+    desc.format = XGU_FORMAT_RGBA8;
+    desc.provider = XGU_PROVIDER_CPU;
+    desc.ui_root = uiRoot.c_str();
+    desc.name = "cli-render";
+    const xgu_view_id view = xgu_view_create(&desc);
+    if (view == XGU_INVALID_VIEW) {
+        std::fprintf(stderr, "view creation failed\n");
+        return 4;
+    }
+    if (xgu_view_load(view, fileName.c_str()) != XGU_OK) {
+        std::fprintf(stderr, "load failed\n");
+        return 5;
+    }
+    xgu_view_repaint(view);
+
+    const void* pixels = nullptr;
+    uint32_t size = 0;
+    uint32_t w = 0;
+    uint32_t h = 0;
+    if (!xgu_view_acquire_pixels(view, &pixels, &size, &w, &h, nullptr)) {
+        std::fprintf(stderr, "nothing was painted\n");
+        return 6;
+    }
+    const int rc = writePng(output, static_cast<const uint8_t*>(pixels), w, h);
+    xgu_view_release_pixels(view);
+    xgu_view_destroy(view);
+    xgu_shutdown();
+    if (rc == 0) {
+        std::printf("wrote %s (%ux%u)\n", output.c_str(), w, h);
+    }
+    return rc;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -331,6 +408,9 @@ int main(int argc, char** argv) {
     }
     if (argc >= 2 && std::strcmp(argv[1], "layout") == 0) {
         return commandLayout(argc, argv);
+    }
+    if (argc >= 2 && std::strcmp(argv[1], "render") == 0) {
+        return commandRender(argc, argv);
     }
     if (argc >= 2 && std::strcmp(argv[1], "--test-frame") == 0) {
         return commandTestFrame(argc, argv);

@@ -25,23 +25,23 @@
 |---|---|---|
 | `width`, `height`, `min-*`, `max-*` | **готово** | px, %, em, rem, vw, vh, auto |
 | `margin`, `padding` (+ стороны) | **готово** | без margin collapsing; `margin: auto` центрирует |
-| `border` (+ стороны), `border-radius` | **готово** (значения; отрисовка — Этап 5) | однородный цвет через `drawDRRect`; разные цвета сторон — без скругления |
+| `border` (+ стороны), `border-radius` | **готово** | однородный цвет через `drawDRRect`; разные цвета сторон рисуются трапециями и без скругления |
 | `position`, `top/right/bottom/left`, `inset` | **готово** | static/relative/absolute; `fixed` = absolute к viewport |
-| `z-index` | **готово** (значение; порядок отрисовки — Этап 5) | |
+| `z-index` | **готово** | stacking contexts по CSS 2.1 Appendix E |
 | `display` | **готово** | block, inline, inline-block, flex, none, contents |
 | `flex-direction`, `flex-wrap`, `justify-content`, `align-items`, `align-self`, `align-content` | **готово** | |
 | `flex`, `flex-grow`, `flex-shrink`, `flex-basis` | **готово** | |
 | `gap`, `row-gap`, `column-gap` | **готово** | |
-| `background-color`, `background-image`, `background-size`, `background-position`, `background-repeat` | **готово** (значения; отрисовка — Этап 5) | один слой; градиенты — позже |
+| `background-color`, `background-image`, `background-size`, `background-position`, `background-repeat` | **готово** | один слой; PNG/JPEG/WebP; `cover`/`contain`/явный размер, повтор через шейдер; градиенты — позже |
 | `color`, `opacity` | **готово** | |
-| `box-shadow` | **готово** (значения; отрисовка — Этап 5) | внешние тени; inset — позже |
+| `box-shadow` | **готово** | внешние тени (смещение, размытие, spread), вырезаются из border box; `inset` — позже |
 | `font-family`, `font-size`, `font-weight`, `font-style` | **готово** | системные шрифты (DirectWrite) + `fonts/` корня UI, `@font-face` |
 | `line-height` | **готово** | число, px, normal |
 | `text-align`, `text-decoration`, `text-transform`, `letter-spacing` | **готово** | |
 | `white-space` | **готово** | normal, nowrap, pre, pre-wrap, pre-line |
 | `text-overflow: ellipsis` | **готово** | при `nowrap` + `overflow: hidden` |
-| `transform`, `transform-origin` | **готово** (матрица считается; применение — Этап 5) | translate/scale/rotate/skew/matrix; только визуально, layout не меняет |
-| `overflow` | **готово** (в раскладке; обрезка — Этап 5) | visible/hidden; scroll — позже |
+| `transform`, `transform-origin` | **готово** | translate/scale/rotate/skew/matrix; только визуально, layout не меняет |
+| `overflow` | **готово** | visible/hidden, обрезка по padding box со скруглением; scroll — позже |
 | `box-sizing`, `visibility`, `pointer-events`, `cursor` | **готово** | |
 | `grid-*`, `float`, `clear`, `transition`, `animation`, `filter`, `backdrop-filter`, CSS-переменные, `calc()` | позже | grid и transitions — первые кандидаты после MVP |
 
@@ -79,7 +79,7 @@
 | `document.getElementById`, `querySelector`, `querySelectorAll`, `createElement`, `createTextNode`, `createComment` | **готово** |
 | `document.documentElement`, `head`, `body`, `title`, `URL`, `getElementsByClassName`, `getElementsByTagName` | **готово** |
 | `Element`: `id`, `className`, `classList` (add/remove/toggle/contains/item/length/value), `getAttribute/setAttribute/removeAttribute/hasAttribute`, `textContent`, `innerHTML`, `outerHTML`, `children`, `childNodes`, `parentNode`, `parentElement`, `firstChild`/`lastChild`/`nextSibling`/`previousSibling`, `appendChild`, `insertBefore`, `removeChild`, `remove`, `contains`, `matches`, `tagName`, `nodeType`, `nodeName`, `isConnected` | **готово** |
-| `Element.style` (свойства через camelCase, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
+| `Element.style` (свойства через camelCase, сокращённые свойства, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
 | `getBoundingClientRect` | план (Этап 6) |
 | `addEventListener`/`removeEventListener`, `Event` (`preventDefault`, `stopPropagation`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent` | план |
 | `setTimeout`/`setInterval`/`clear*`, `requestAnimationFrame`, `performance.now` | план |
@@ -101,3 +101,6 @@
 10. `<html>` раскладывается по размеру viewport, поэтому корневой элемент покрывает всю поверхность (в браузере высота `html` равна высоте содержимого). Для UI это удобнее: фон и hit-test работают по всей площади.
 11. Единицы `pt/pc/in/cm/mm` переводятся в пиксели по 96 dpi; `calc()`, CSS-переменные и `@media` не поддерживаются — соответствующие правила пропускаются с предупреждением.
 12. `border-radius` с формой `/` (эллиптические углы) не поддерживается: берётся первый набор радиусов.
+13. Сокращённое свойство можно записать через `element.style` (`style.background = '#0b1220'`), но чтение возвращает пустую строку: сокращение не собирается обратно из longhand'ов. Читать нужно longhand (`style.backgroundColor`).
+14. Грязные прямоугольники не вычисляются: каждый кадр перерисовывает весь viewport, кэша `SkPicture` на бокс нет. Это задача Этапа 10.
+15. `border-image`, `inset`-тени и градиенты в `background-image` не рисуются.

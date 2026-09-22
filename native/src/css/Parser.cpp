@@ -1018,6 +1018,8 @@ std::string trim(std::string_view text) {
 
 } // namespace
 
+bool isShorthandName(std::string_view name) { return shorthandFromName(name) != Shorthand::None; }
+
 bool parseDeclaration(std::string_view name, std::string_view valueText, DeclarationBlock& out,
                       std::vector<std::string>* warnings) {
     const std::string property = lowered(trim(name));

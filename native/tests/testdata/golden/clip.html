@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- overflow: hidden (including a rounded clip) and 2D transforms. -->
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; background: transparent; }
+  .clip {
+    position: absolute; left: 20px; top: 20px; width: 80px; height: 80px;
+    overflow: hidden; border-radius: 16px; background: #101624;
+  }
+  .clip .big { width: 200px; height: 200px; background: #2ee59d; }
+  .rotated {
+    position: absolute; left: 140px; top: 20px; width: 60px; height: 60px;
+    background: #ff6b6b; transform: rotate(25deg);
+  }
+  .scaled {
+    position: absolute; left: 140px; top: 88px; width: 40px; height: 40px;
+    background: #5ac8fa; transform: scale(1.5); transform-origin: left top;
+  }
+  .moved {
+    position: absolute; left: 20px; top: 110px; width: 60px; height: 30px;
+    background: #ffd166; transform: translate(20px, 10px);
+  }
+</style></head>
+<body>
+  <div class="clip"><div class="big"></div></div>
+  <div class="rotated"></div>
+  <div class="scaled"></div>
+  <div class="moved"></div>
+</body></html>

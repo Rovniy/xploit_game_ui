@@ -59,6 +59,9 @@ public:
     const css::ComputedStyle* style() const { return style_; }
     void setStyle(const css::ComputedStyle* style) { style_ = style; }
 
+    const css::ComputedStyle* styleUsedForText() const { return styleUsedForText_; }
+    void setStyleUsedForText(const css::ComputedStyle* style) { styleUsedForText_ = style; }
+
     YGNodeRef yogaNode() const { return yogaNode_; }
 
     LayoutBox* parent() const { return parent_; }
@@ -101,6 +104,9 @@ private:
     BoxKind kind_;
     dom::Element* element_ = nullptr;
     const css::ComputedStyle* style_ = nullptr;
+    // The style the inline runs were shaped from; when it no longer matches
+    // style_ the element restyled and the paragraph has to be rebuilt.
+    const css::ComputedStyle* styleUsedForText_ = nullptr;
     YGNodeRef yogaNode_ = nullptr;
     LayoutBox* parent_ = nullptr;
     std::vector<std::unique_ptr<LayoutBox>> children_;

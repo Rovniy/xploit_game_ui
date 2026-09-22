@@ -113,7 +113,8 @@ TEST_F(DocumentLoadTest, LoadsHtmlAndRunsInlineScripts) {
     ASSERT_NE(view, XGU_INVALID_VIEW);
     ASSERT_EQ(xgu_view_load(view, "UI/Menu/index.html"), XGU_OK);
 
-    EXPECT_EQ(xgu_view_get_state(view), XGU_STATE_JS_READY);
+    // Loading paints a frame, which promotes JsReady to Interactive.
+    EXPECT_EQ(xgu_view_get_state(view), XGU_STATE_INTERACTIVE);
     EXPECT_TRUE(logContains("title=Menu"));
     EXPECT_TRUE(logContains("url=UI/Menu/index.html"));
     EXPECT_TRUE(logContains("greeting=Hello"));
@@ -273,7 +274,8 @@ TEST_F(DocumentLoadTest, LoadHtmlFromMemory) {
                                  "UI/Menu/virtual.html"),
               XGU_OK);
     EXPECT_TRUE(logContains("mem=inline"));
-    EXPECT_EQ(xgu_view_get_state(view), XGU_STATE_JS_READY);
+    // Loading paints a frame, which promotes JsReady to Interactive.
+    EXPECT_EQ(xgu_view_get_state(view), XGU_STATE_INTERACTIVE);
 }
 
 TEST_F(DocumentLoadTest, ReloadStartsFromACleanIsolate) {

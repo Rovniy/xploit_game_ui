@@ -1,0 +1,53 @@
+#pragma once
+
+#include "render/DisplayList.h"
+
+#include <cstdint>
+
+class SkCanvas;
+
+namespace xgu::dom {
+class Document;
+}
+
+namespace xgu::layout {
+class LayoutBox;
+class LayoutEngine;
+} // namespace xgu::layout
+
+namespace xgu::paint {
+
+// Turns the laid-out box tree into a display list.
+//
+// Paint order follows a simplified CSS 2.1 Appendix E: a stacking context draws
+// its own decorations, then negative z-index contexts, in-flow descendants,
+// inline content, positioned descendants with z-index auto/0, and finally
+// positive z-index contexts. What the MVP leaves out is listed in
+// docs/css-support.md (no per-box picture caching, no dirty regions, no inset
+// shadows or gradients).
+class Painter {
+public:
+    Painter(dom::Document& document, layout::LayoutEngine& layout);
+
+    // Records the whole viewport. `widthPx`/`heightPx` are device pixels and
+    // `dpr` converts the CSS pixels the layout works in.
+    render::DisplayList paint(int widthPx, int heightPx, float dpr, uint64_t frameId);
+
+    // Paints into a canvas the caller owns (golden tests, the CLI).
+    void paintInto(SkCanvas& canvas);
+
+private:
+    void paintStackingContext(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintBoxAndDescendants(SkCanvas& canvas, layout::LayoutBox& box, bool isStackingContextRoot);
+    void paintDecorations(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintBackgroundImage(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintBorders(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintShadows(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintReplaced(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintChildren(SkCanvas& canvas, layout::LayoutBox& box);
+
+    dom::Document& document_;
+    layout::LayoutEngine& layout_;
+};
+
+} // namespace xgu::paint

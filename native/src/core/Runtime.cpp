@@ -111,6 +111,9 @@ bool Runtime::loadDocument(ViewId id, std::string relativePath) {
     thread_.post([this, id, relativePath = std::move(relativePath)] {
         if (View* view = views_.resolve(id)) {
             view->loadDocument(relativePath);
+            // Loading paints the first frame; the software provider
+            // rasterises it here, GPU providers on the host's render event.
+            render_->paintIfCpu(*view);
         }
     });
     return true;
@@ -123,6 +126,9 @@ bool Runtime::loadHtml(ViewId id, std::string html, std::string basePath) {
     thread_.post([this, id, html = std::move(html), basePath = std::move(basePath)] {
         if (View* view = views_.resolve(id)) {
             view->loadHtml(html, basePath);
+            // Loading paints the first frame; the software provider
+            // rasterises it here, GPU providers on the host's render event.
+            render_->paintIfCpu(*view);
         }
     });
     return true;
@@ -135,6 +141,25 @@ bool Runtime::reloadDocument(ViewId id) {
     thread_.post([this, id] {
         if (View* view = views_.resolve(id)) {
             view->reload();
+            // Loading paints the first frame; the software provider
+            // rasterises it here, GPU providers on the host's render event.
+            render_->paintIfCpu(*view);
+        }
+    });
+    return true;
+}
+
+bool Runtime::repaintView(ViewId id) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id] {
+        if (View* view = views_.resolve(id)) {
+            if (view->updateAndPaint()) {
+                // GPU providers wait for the host's render event; the software
+                // provider rasterises right here.
+                render_->paintIfCpu(*view);
+            }
         }
     });
     return true;
@@ -157,6 +182,11 @@ void Runtime::onTick(double timeSeconds) {
         }
         if (IJavaScriptRuntime* js = view->javaScript()) {
             js->tick(timeSeconds);
+        }
+        // Repaint when the document changed since the last frame. Style and
+        // layout decide that by looking at the dirty bits they were given.
+        if (view->updateAndPaint()) {
+            render_->paintIfCpu(*view);
         }
     }
 }

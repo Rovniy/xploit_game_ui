@@ -33,9 +33,12 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 .\native\out\x64-windows-release\bin\xgu_cli.exe --test-frame out.png                # тот же кадр через CPU-провайдер
 .\native\out\x64-windows-release\bin\xgu_cli.exe js script.js                           # выполнить JS в V8 (console.* в stdout/stderr)
 .\native\out\x64-windows-release\bin\xgu_cli.exe layout page.html --width 800 --height 600  # дамп дерева боксов в JSON
+.\native\out\x64-windows-release\bin\xgu_cli.exe render page.html out.png --width 800 --height 500  # отрисовать страницу в PNG
 ```
 
-Статус: Этапы 0–4 завершены (native 160/160). Следующий — Этап 5: отрисовка в GPU-текстуру. См. [docs/PLAN.md](docs/PLAN.md).
+Эталонные изображения golden-тестов перегенерируются переменной окружения `XGU_UPDATE_GOLDEN=1`; при расхождении тест пишет рядом `<имя>.actual.png` и `<имя>.diff.png`.
+
+Статус: Этапы 0–5 завершены (native 180/180, Unity PlayMode 20/20 на D3D12). Следующий — Этап 6: ввод и события DOM. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 

@@ -7,6 +7,7 @@
 #include "html/LexborHtmlParser.h"
 #include "js/v8/V8Runtime.h"
 #include "layout/LayoutEngine.h"
+#include "paint/Painter.h"
 #include "text/FontManager.h"
 
 #include <vector>
@@ -33,6 +34,7 @@ View::View(ViewDesc desc)
 
 View::~View() {
     disposeJavaScript();
+    painter_.reset();
     layoutEngine_.reset();
     styleEngine_.reset();
     document_.reset();
@@ -97,6 +99,7 @@ dom::Document& View::ensureDocument() {
         document_->setAssetLoader(assetLoader_.get());
         styleEngine_ = std::make_unique<css::StyleEngine>(*document_);
         layoutEngine_ = std::make_unique<layout::LayoutEngine>(*document_);
+        painter_ = std::make_unique<paint::Painter>(*document_, *layoutEngine_);
     }
     return *document_;
 }
@@ -161,9 +164,26 @@ bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
     if (ensureJavaScript()) {
         runDocumentScripts();
     }
-    // Scripts may have changed the DOM; refresh before anyone paints.
-    updateStyleAndLayout();
     setState(ViewState::JsReady);
+    // Scripts may have changed the DOM; restyle, lay out and record a frame.
+    updateAndPaint();
+    return true;
+}
+
+bool View::updateAndPaint() {
+    if (!updateStyleAndLayout() || !painter_) {
+        return false;
+    }
+    const float dpr = devicePixelRatio() > 0.0f ? devicePixelRatio() : 1.0f;
+    render::DisplayList frame = painter_->paint(static_cast<int>(width()), static_cast<int>(height()), dpr,
+                                                nextFrameId());
+    if (!frame.valid()) {
+        return false;
+    }
+    mailbox_.publish(std::move(frame));
+    if (state() == ViewState::JsReady) {
+        setState(ViewState::Interactive);
+    }
     return true;
 }
 
@@ -175,6 +195,7 @@ bool View::reload() {
     const std::string path = loadedPath_;
     disposeJavaScript();
     jsFailed_ = false;
+    painter_.reset();
     layoutEngine_.reset();
     styleEngine_.reset();
     document_.reset();

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- A HUD-shaped flex layout: rows, gap, flex-grow, percentage fills. -->
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; background: transparent; }
+  body { display: flex; flex-direction: column; justify-content: center; padding: 0 16px; gap: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .icon { width: 18px; height: 18px; background: #5ac8fa; border-radius: 4px; }
+  .track { flex: 1; height: 12px; background: #101624; border-radius: 6px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 6px; }
+  .health .fill { width: 72%; background: #2ee59d; }
+  .armour .fill { width: 45%; background: #ffd166; }
+  .ammo   .fill { width: 20%; background: #ff6b6b; }
+  .chip { width: 28px; height: 12px; background: #3b4a68; border-radius: 3px; }
+</style></head>
+<body>
+  <div class="row health"><div class="icon"></div><div class="track"><div class="fill"></div></div><div class="chip"></div></div>
+  <div class="row armour"><div class="icon"></div><div class="track"><div class="fill"></div></div><div class="chip"></div></div>
+  <div class="row ammo"><div class="icon"></div><div class="track"><div class="fill"></div></div><div class="chip"></div></div>
+</body></html>

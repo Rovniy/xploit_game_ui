@@ -85,7 +85,9 @@ namespace Xploit.GameUI.Tests
             view.Load(TestDirectory + "/index.html");
             yield return Settle();
 
-            Assert.AreEqual(ViewState.JsReady, view.State);
+            // Since stage 5 a loaded document is also painted, which takes the
+            // view past JsReady to Interactive.
+            Assert.AreEqual(ViewState.Interactive, view.State);
             Object.Destroy(view.gameObject);
             yield return null;
         }
@@ -122,7 +124,9 @@ namespace Xploit.GameUI.Tests
             LogAssert.Expect(LogType.Log, new Regex("memory=works"));
             view.LoadHtml("<b id=\"b\">works</b><script>console.log('memory=' + document.getElementById('b').textContent);</script>");
             yield return Settle();
-            Assert.AreEqual(ViewState.JsReady, view.State);
+            // Since stage 5 a loaded document is also painted, which takes the
+            // view past JsReady to Interactive.
+            Assert.AreEqual(ViewState.Interactive, view.State);
             Object.Destroy(view.gameObject);
             yield return null;
         }

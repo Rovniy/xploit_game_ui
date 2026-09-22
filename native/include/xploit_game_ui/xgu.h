@@ -206,6 +206,11 @@ XGU_API xgu_status xgu_view_load_html(xgu_view_id view, const char* html, const 
    JavaScript isolate. */
 XGU_API xgu_status xgu_view_reload(xgu_view_id view);
 
+/* Restyles, lays out and records a frame for the view. The host normally does
+   not call this: xgu_tick repaints whatever changed. It is here for tools and
+   tests that need a frame at a known point. */
+XGU_API xgu_status xgu_view_repaint(xgu_view_id view);
+
 /* -------------------------------------------------------------------------- */
 /* JavaScript                                                                  */
 /* -------------------------------------------------------------------------- */

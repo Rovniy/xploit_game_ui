@@ -107,11 +107,15 @@ target_link_libraries(xgu_dom PUBLIC xgu_core PRIVATE lexbor::lexbor_static)
 # ---------------------------------------------------------------------------
 # Text and layout: skparagraph for inline content, Yoga for boxes
 # ---------------------------------------------------------------------------
+# Paint lives here too: layout needs intrinsic image sizes and paint needs the
+# box tree, so splitting them would only create a dependency cycle.
 add_library(xgu_layout STATIC
     src/text/FontManager.cpp
     src/text/InlineContent.cpp
     src/layout/LayoutBox.cpp
-    src/layout/LayoutEngine.cpp)
+    src/layout/LayoutEngine.cpp
+    src/paint/ImageCache.cpp
+    src/paint/Painter.cpp)
 # LayoutBox.h exposes YGNodeRef, so Yoga is part of the public interface.
 target_link_libraries(xgu_layout PUBLIC xgu_dom xgu_skia yoga::yogacore)
 
@@ -205,7 +209,9 @@ if(XGU_BUILD_TESTS)
         tests/unit/CssParserTest.cpp
         tests/unit/StyleEngineTest.cpp
         tests/unit/LayoutTest.cpp
-        tests/unit/StyleLayoutPipelineTest.cpp)
+        tests/unit/StyleLayoutPipelineTest.cpp
+        tests/unit/PaintTest.cpp
+        tests/unit/GoldenImageTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

@@ -46,6 +46,8 @@ private:
                               std::vector<text::InlinePlaceholder>& placeholders);
     void measureAtomicInlines(LayoutBox& inlineBox);
     void applyStyles(LayoutBox& box);
+    // Reshapes an anonymous inline box's paragraph after its element restyled.
+    void rebuildInlineContentIfRestyled(LayoutBox& box);
     void transferFrames(LayoutBox& box, float parentX, float parentY);
 
     dom::Document& document_;

@@ -42,6 +42,8 @@ public:
     bool loadDocument(ViewId id, std::string relativePath);
     bool loadHtml(ViewId id, std::string html, std::string basePath);
     bool reloadDocument(ViewId id);
+    // Forces one repaint; normally tick() does this for views that changed.
+    bool repaintView(ViewId id);
     // Advances all views by one frame (JS message loop, later timers/rAF/layout).
     void tick(double timeSeconds);
 

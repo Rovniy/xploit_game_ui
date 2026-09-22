@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Stacking contexts: z-index order, opacity grouping, positioned boxes. -->
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; background: transparent; }
+  div { position: absolute; }
+  .under { left: 20px; top: 20px; width: 100px; height: 100px; background: #ff6b6b; z-index: 1; }
+  .over  { left: 60px; top: 40px; width: 100px; height: 100px; background: #5ac8fa; z-index: 3; }
+  .mid   { left: 100px; top: 60px; width: 100px; height: 60px; background: #2ee59d; z-index: 2; }
+  .faded { left: 40px; top: 90px; width: 160px; height: 50px; background: #ffd166; opacity: 0.5; z-index: 4; }
+  .faded .inner { left: 0; top: 0; width: 60px; height: 50px; background: #ffd166; }
+  .behind { left: 0; top: 0; width: 240px; height: 160px; background: #101624; z-index: -1; }
+</style></head>
+<body>
+  <div class="behind"></div>
+  <div class="over"></div>
+  <div class="under"></div>
+  <div class="mid"></div>
+  <div class="faded"><div class="inner"></div></div>
+</body></html>

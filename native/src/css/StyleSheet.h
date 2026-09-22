@@ -47,6 +47,11 @@ StyleSheet parseStyleSheet(std::string_view css, Origin origin = Origin::Author,
 // Parses the contents of a style="" attribute (no selectors, no braces).
 DeclarationBlock parseDeclarationBlock(std::string_view text, std::vector<std::string>* warnings = nullptr);
 
+// True for a shorthand the parser can expand ("background", "margin", ...).
+// Shorthands have no PropertyId of their own, so callers that gate on
+// propertyFromName have to ask this as well.
+bool isShorthandName(std::string_view name);
+
 // Parses one "name: value" pair, expanding shorthands. Returns false when the
 // property is unknown or the value cannot be parsed.
 bool parseDeclaration(std::string_view name, std::string_view value, DeclarationBlock& out,

@@ -8,4 +8,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Stage1_HelloWorld.unity
     guid: 178d9520f5d6b9c4fa0b2eb22357da82
+  - enabled: 1
+    path: Assets/Scenes/Stage5_MainMenu.unity
+    guid: 0d19c34ea25d4b7695ce0e50366b1fba
   m_configObjects: {}

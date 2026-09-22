@@ -667,6 +667,12 @@ v8::Intercepted styleNamedGetter(v8::Local<v8::Name> name, const v8::PropertyCal
     }
     const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), name));
     if (css::propertyFromName(property) == css::PropertyId::Invalid) {
+        // A shorthand reads back as the empty string: it has no stored value of
+        // its own and the MVP does not re-serialise one from its longhands.
+        if (css::isShorthandName(property)) {
+            info.GetReturnValue().Set(toV8(info.GetIsolate(), std::string()));
+            return v8::Intercepted::kYes;
+        }
         return v8::Intercepted::kNo;
     }
     info.GetReturnValue().Set(toV8(info.GetIsolate(), readInlineProperty(*element, property)));
@@ -683,7 +689,8 @@ v8::Intercepted styleNamedSetter(v8::Local<v8::Name> name, v8::Local<v8::Value> 
         return v8::Intercepted::kNo;
     }
     const std::string property = toCssPropertyName(toUtf8(info.GetIsolate(), name));
-    if (css::propertyFromName(property) == css::PropertyId::Invalid) {
+    // Shorthands have no PropertyId of their own; writeInlineProperty expands them.
+    if (css::propertyFromName(property) == css::PropertyId::Invalid && !css::isShorthandName(property)) {
         return v8::Intercepted::kNo;
     }
     writeInlineProperty(*element, property, toUtf8(info.GetIsolate(), value));

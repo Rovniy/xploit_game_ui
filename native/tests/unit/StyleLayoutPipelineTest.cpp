@@ -1,4 +1,4 @@
-// Stage 4 end-to-end: a document loaded through the C ABI is styled and laid
+﻿// Stage 4 end-to-end: a document loaded through the C ABI is styled and laid
 // out, and JavaScript can read and change the style.
 
 #include "core/Runtime.h"
@@ -225,6 +225,35 @@ TEST_F(PipelineTest, JavaScriptReadsAndWritesInlineStyle) {
     EXPECT_FLOAT_EQ(frame.width, 120.0f);
     EXPECT_FLOAT_EQ(frame.height, 30.0f);
     EXPECT_EQ(styleOf(view, "d")->backgroundColor, css::Color::rgba(255, 0, 0));
+}
+
+TEST_F(PipelineTest, JavaScriptCanSetShorthandProperties) {
+    // Shorthands have no PropertyId, so the style interceptor used to drop them
+    // and "el.style.background = ..." silently did nothing.
+    write("UI/index.html", R"(<html><head><style>html, body { margin: 0 }</style></head><body>
+      <div id="d"></div>
+      <script>
+        const d = document.getElementById('d');
+        d.style.background = '#0000ff';
+        d.style.padding = '4px 8px';
+        d.style.border = '2px solid #00ff00';
+        console.log('cssText=' + d.style.cssText);
+        console.log('shorthandReadsBack=[' + d.style.background + ']');
+      </script></body></html>)");
+
+    const xgu_view_id view = createView();
+    ASSERT_EQ(xgu_view_load(view, "UI/index.html"), XGU_OK);
+
+    EXPECT_TRUE(logContains("background-color: #0000ff"));
+    EXPECT_TRUE(logContains("padding-top: 4px"));
+    EXPECT_TRUE(logContains("border-left-style: solid"));
+    // A shorthand is not re-serialised from its longhands (documented deviation).
+    EXPECT_TRUE(logContains("shorthandReadsBack=[]"));
+
+    const css::ComputedStyle* style = styleOf(view, "d");
+    ASSERT_NE(style, nullptr);
+    EXPECT_EQ(style->backgroundColor, css::Color::rgba(0, 0, 255));
+    EXPECT_EQ(style->borderColor[css::kTop], css::Color::rgba(0, 255, 0));
 }
 
 TEST_F(PipelineTest, ClassChangeFromJavaScriptRestyles) {

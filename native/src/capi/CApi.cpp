@@ -221,6 +221,13 @@ XGU_API xgu_status xgu_view_reload(xgu_view_id view) {
     return Runtime::instance().reloadDocument(static_cast<ViewId>(view)) ? XGU_OK : XGU_ERR_INVALID_VIEW;
 }
 
+XGU_API xgu_status xgu_view_repaint(xgu_view_id view) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    return Runtime::instance().repaintView(static_cast<ViewId>(view)) ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
 XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, const char* origin) {
     if (!source) {
         return XGU_ERR_INVALID_ARGUMENT;

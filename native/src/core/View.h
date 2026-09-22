@@ -23,6 +23,10 @@ namespace xgu::layout {
 class LayoutEngine;
 }
 
+namespace xgu::paint {
+class Painter;
+}
+
 namespace xgu {
 
 enum class TextureFormat : uint8_t { BGRA8 = 0, RGBA8 = 1 };
@@ -120,6 +124,10 @@ public:
     // Returns false when there is nothing to lay out.
     bool updateStyleAndLayout();
 
+    // Styles, lays out and records a frame into the mailbox. Returns false when
+    // there is nothing to show.
+    bool updateAndPaint();
+
     // Loads an HTML document relative to the UI root ("UI/Menu/index.html"):
     // reads it, parses it, exposes it to JavaScript and runs its <script> tags.
     bool loadDocument(std::string_view relativePath);
@@ -152,6 +160,7 @@ private:
     RefPtr<dom::Document> document_;
     std::unique_ptr<css::StyleEngine> styleEngine_;
     std::unique_ptr<layout::LayoutEngine> layoutEngine_;
+    std::unique_ptr<paint::Painter> painter_;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

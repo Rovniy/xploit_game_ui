@@ -1,8 +1,10 @@
 #include "layout/LayoutEngine.h"
 
 #include "core/Log.h"
+#include "core/AssetLoader.h"
 #include "dom/Document.h"
 #include "dom/Element.h"
+#include "paint/ImageCache.h"
 #include "text/FontManager.h"
 
 #include <yoga/YGConfig.h>
@@ -250,8 +252,7 @@ std::unique_ptr<LayoutBox> LayoutEngine::buildBox(dom::Element& element) {
 
     auto box = std::make_unique<LayoutBox>(kind, &element, style);
     if (kind == BoxKind::Replaced) {
-        // Until the image decoder reports the real size (Stage 5), use the
-        // width/height attributes or a small placeholder.
+        // The width/height attributes win; otherwise the decoded image decides.
         float width = 0.0f;
         float height = 0.0f;
         if (const std::string* value = element.getAttribute(Atom("width"))) {
@@ -259,6 +260,24 @@ std::unique_ptr<LayoutBox> LayoutEngine::buildBox(dom::Element& element) {
         }
         if (const std::string* value = element.getAttribute(Atom("height"))) {
             height = static_cast<float>(std::atof(value->c_str()));
+        }
+        if ((width <= 0.0f || height <= 0.0f) && document_.assetLoader()) {
+            const std::string source = element.getAttributeOrEmpty(Atom("src"));
+            if (!source.empty()) {
+                if (sk_sp<SkImage> image =
+                        paint::ImageCache::instance().get(*document_.assetLoader(), document_.url(), source)) {
+                    const float intrinsicWidth = static_cast<float>(image->width());
+                    const float intrinsicHeight = static_cast<float>(image->height());
+                    if (width > 0.0f && height <= 0.0f) {
+                        height = width * intrinsicHeight / std::max(1.0f, intrinsicWidth);
+                    } else if (height > 0.0f && width <= 0.0f) {
+                        width = height * intrinsicWidth / std::max(1.0f, intrinsicHeight);
+                    } else {
+                        width = intrinsicWidth;
+                        height = intrinsicHeight;
+                    }
+                }
+            }
         }
         box->setIntrinsicSize(width, height);
         YGNodeSetMeasureFunc(box->yogaNode(), &measureBox);
@@ -353,9 +372,36 @@ void LayoutEngine::measureAtomicInlines(LayoutBox& inlineBox) {
 }
 
 void LayoutEngine::applyStyles(LayoutBox& box) {
+    // A restyle hands the element a new ComputedStyle, so the pointer captured
+    // when the tree was built is stale (and, once the old style is released,
+    // dangling). Refresh it before reading anything off it. Parents are visited
+    // before their children, so an anonymous box sees the new parent style here.
+    if (dom::Element* element = box.element()) {
+        if (const ComputedStyle* current = element->computedStyle()) {
+            box.setStyle(current);
+        }
+    } else if (const LayoutBox* parent = box.parent()) {
+        box.setStyle(parent->style());
+    }
+
     const ComputedStyle* style = box.style();
     YGNodeRef node = box.yogaNode();
     if (!style || !node) {
+        return;
+    }
+
+    if (box.kind() == BoxKind::InlineContext) {
+        // An anonymous inline formatting context borrows its parent's style only
+        // for the inherited text properties. The box model belongs to the parent
+        // element, so applying it here would inset (and size) the text twice.
+        YGNodeStyleSetDisplay(node, YGDisplayFlex);
+        YGNodeStyleSetPositionType(node, YGPositionTypeStatic);
+        YGNodeStyleSetFlexGrow(node, 0.0f);
+        YGNodeStyleSetFlexShrink(node, 0.0f);
+        YGNodeStyleSetAlignSelf(node, YGAlignAuto);
+        rebuildInlineContentIfRestyled(box);
+        measureAtomicInlines(box);
+        YGNodeMarkDirty(node);
         return;
     }
 
@@ -453,10 +499,7 @@ void LayoutEngine::applyStyles(LayoutBox& box) {
         [&](float v) { YGNodeStyleSetGapPercent(node, YGGutterColumn, v); },
         [&] { YGNodeStyleSetGap(node, YGGutterColumn, 0.0f); });
 
-    if (box.kind() == BoxKind::InlineContext) {
-        measureAtomicInlines(box);
-        YGNodeMarkDirty(node);
-    } else if (box.kind() == BoxKind::Replaced) {
+    if (box.kind() == BoxKind::Replaced) {
         YGNodeMarkDirty(node);
     }
     for (const std::unique_ptr<LayoutBox>& child : box.children()) {
@@ -474,6 +517,22 @@ void LayoutEngine::rebuildTree() {
     treeDirty_ = false;
 }
 
+void LayoutEngine::rebuildInlineContentIfRestyled(LayoutBox& box) {
+    text::InlineContent* content = box.inlineContent();
+    const LayoutBox* parent = box.parent();
+    if (!content || !parent || !parent->element() || !box.style()) {
+        return;
+    }
+    if (box.styleUsedForText() == box.style()) {
+        return;
+    }
+    // Every run holds a copy of its element's text properties, so a restyle has
+    // to reshape the paragraph. The placeholders keep pointing at the same
+    // atomic inline boxes; only their sizes are measured again.
+    box.setStyleUsedForText(box.style());
+    content->build(*parent->element(), *box.style(), content->placeholders());
+}
+
 void LayoutEngine::transferFrames(LayoutBox& box, float parentX, float parentY) {
     YGNodeRef node = box.yogaNode();
     const float x = parentX + YGNodeLayoutGetLeft(node);
@@ -483,17 +542,27 @@ void LayoutEngine::transferFrames(LayoutBox& box, float parentX, float parentY) 
                   YGNodeLayoutGetBorder(node, YGEdgeBottom), YGNodeLayoutGetBorder(node, YGEdgeLeft)},
                  {YGNodeLayoutGetPadding(node, YGEdgeTop), YGNodeLayoutGetPadding(node, YGEdgeRight),
                   YGNodeLayoutGetPadding(node, YGEdgeBottom), YGNodeLayoutGetPadding(node, YGEdgeLeft)});
+
+    // Re-lay the paragraph out at the width the box actually got. Yoga caches
+    // measurements, so the last measure call is often a trial pass at a much
+    // larger width; leaving that in place would align the text (and the
+    // placeholder rects atomic inlines are positioned from) to the trial width.
+    if (text::InlineContent* content = box.inlineContent(); content && !content->empty()) {
+        content->layout(std::max(0.0f, box.contentBox().width));
+    }
+
     for (const std::unique_ptr<LayoutBox>& child : box.children()) {
         transferFrames(*child, x, y);
     }
     // Atomic inlines sit where the paragraph placed their placeholders.
     if (const text::InlineContent* content = box.inlineContent()) {
+        const Rect contentBox = box.contentBox();
         for (const text::InlinePlaceholder& placeholder : content->placeholders()) {
             if (!placeholder.box) {
                 continue;
             }
             YGNodeRef inner = placeholder.box->yogaNode();
-            placeholder.box->setBorderBox(Rect{x + placeholder.x, y + placeholder.y,
+            placeholder.box->setBorderBox(Rect{contentBox.x + placeholder.x, contentBox.y + placeholder.y,
                                                YGNodeLayoutGetWidth(inner), YGNodeLayoutGetHeight(inner)});
             placeholder.box->setEdges(
                 {YGNodeLayoutGetBorder(inner, YGEdgeTop), YGNodeLayoutGetBorder(inner, YGEdgeRight),
