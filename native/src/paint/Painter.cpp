@@ -23,6 +23,7 @@
 #include <include/core/SkRect.h>
 #include <include/core/SkSamplingOptions.h>
 #include <include/core/SkTileMode.h>
+#include <include/effects/SkGradient.h>
 
 #include <algorithm>
 #include <cmath>
@@ -173,6 +174,9 @@ void Painter::paintDecorations(SkCanvas& canvas, LayoutBox& box) {
         paint.setColor(toSkColor(style.backgroundColor));
         canvas.drawRRect(borderBoxRRect(box), paint);
     }
+    if (style.backgroundGradient.valid()) {
+        paintBackgroundGradient(canvas, box);
+    }
     if (!style.backgroundImage.empty()) {
         paintBackgroundImage(canvas, box);
     }
@@ -250,6 +254,58 @@ void Painter::paintShadows(SkCanvas& canvas, LayoutBox& box) {
         canvas.clipRRect(borderRRect, SkClipOp::kDifference, true);
         canvas.drawRRect(shape, paint);
     }
+}
+
+void Painter::paintBackgroundGradient(SkCanvas& canvas, LayoutBox& box) {
+    const css::Gradient& gradient = box.style()->backgroundGradient;
+    const Rect frame = box.paddingBox();
+    if (frame.isEmpty()) {
+        return;
+    }
+
+    std::vector<SkColor4f> colors;
+    std::vector<float> positions;
+    colors.reserve(gradient.stops.size());
+    positions.reserve(gradient.stops.size());
+    for (const css::GradientStop& stop : gradient.stops) {
+        colors.push_back(SkColor4f::FromColor(toSkColor(stop.color)));
+        positions.push_back(std::clamp(stop.position, 0.0f, 1.0f));
+    }
+
+    const SkGradient description(SkGradient::Colors(SkSpan<const SkColor4f>(colors),
+                                                    SkSpan<const float>(positions), SkTileMode::kClamp),
+                                 SkGradient::Interpolation{});
+    sk_sp<SkShader> shader;
+    if (gradient.kind == css::GradientKind::Radial) {
+        const SkPoint centre = SkPoint::Make(frame.x + frame.width * 0.5f, frame.y + frame.height * 0.5f);
+        // farthest-corner, which is what an unqualified radial-gradient means.
+        const float radius = std::hypot(frame.width, frame.height) * 0.5f;
+        shader = SkShaders::RadialGradient(centre, radius, description);
+    } else {
+        // The CSS gradient line runs through the centre at `angle`, with 0deg
+        // pointing up and growing clockwise, and is long enough that the corners
+        // land exactly on its ends.
+        const float radians = gradient.angleDegrees * 3.14159265358979323846f / 180.0f;
+        const float dirX = std::sin(radians);
+        const float dirY = -std::cos(radians);
+        const float halfLength =
+            (std::fabs(frame.width * dirX) + std::fabs(frame.height * dirY)) * 0.5f;
+        const SkPoint centre = SkPoint::Make(frame.x + frame.width * 0.5f, frame.y + frame.height * 0.5f);
+        const SkPoint ends[2] = {
+            SkPoint::Make(centre.fX - dirX * halfLength, centre.fY - dirY * halfLength),
+            SkPoint::Make(centre.fX + dirX * halfLength, centre.fY + dirY * halfLength),
+        };
+        shader = SkShaders::LinearGradient(ends, description);
+    }
+    if (!shader) {
+        return;
+    }
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setShader(std::move(shader));
+    // The gradient paints over the padding box, inside the border, as CSS says
+    // for the default background-origin.
+    canvas.drawRRect(paddingBoxRRect(box), paint);
 }
 
 void Painter::paintBackgroundImage(SkCanvas& canvas, LayoutBox& box) {

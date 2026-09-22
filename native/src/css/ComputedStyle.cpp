@@ -98,6 +98,7 @@ ComputedStyle::Diff ComputedStyle::diff(const ComputedStyle& before, const Compu
 
     result.paint = layoutChanged || before.backgroundColor != after.backgroundColor ||
                    before.backgroundImage != after.backgroundImage ||
+                   !(before.backgroundGradient == after.backgroundGradient) ||
                    before.backgroundRepeat != after.backgroundRepeat ||
                    before.backgroundSize != after.backgroundSize ||
                    before.backgroundPosition != after.backgroundPosition || before.opacity != after.opacity ||

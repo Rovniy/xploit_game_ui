@@ -66,6 +66,126 @@ bool keywordIs(const CssValue& value, const char* name) {
 
 // --- value -> typed field conversions ---------------------------------------
 
+// "to right", "to bottom left", ... as the CSS angle they stand for. Returns the
+// number of keywords consumed, or zero when this is not a side specification.
+size_t toSideAngle(const std::vector<CssValue>& items, size_t first, float& outDegrees) {
+    bool top = false, bottom = false, left = false, right = false;
+    size_t i = first;
+    for (; i < items.size() && items[i].isKeyword(); ++i) {
+        const Atom& word = items[i].keyword;
+        if (word.equalsIgnoringCase("top")) top = true;
+        else if (word.equalsIgnoringCase("bottom")) bottom = true;
+        else if (word.equalsIgnoringCase("left")) left = true;
+        else if (word.equalsIgnoringCase("right")) right = true;
+        else break;
+    }
+    if (top && right) outDegrees = 45.0f;
+    else if (bottom && right) outDegrees = 135.0f;
+    else if (bottom && left) outDegrees = 225.0f;
+    else if (top && left) outDegrees = 315.0f;
+    else if (top) outDegrees = 0.0f;
+    else if (right) outDegrees = 90.0f;
+    else if (bottom) outDegrees = 180.0f;
+    else if (left) outDegrees = 270.0f;
+    else return 0;
+    return i - first;
+}
+
+// linear-gradient([<angle> | to <side>,] <color> [<position>], ...)
+// radial-gradient([circle | ellipse,] <color> [<position>], ...)
+//
+// The parser drops the commas, which costs nothing here: in this syntax a colour
+// always starts the next stop, and only the head can be an angle or a keyword.
+// The size and position keywords of radial-gradient beyond the shape are
+// ignored; a game UI wants a glow from the middle, and the full syntax would be
+// a lot of surface for that.
+Gradient toGradient(const CssValue& value, const ComputedStyle& style) {
+    Gradient gradient;
+    if (value.keyword.equalsIgnoringCase("linear-gradient")) {
+        gradient.kind = GradientKind::Linear;
+    } else if (value.keyword.equalsIgnoringCase("radial-gradient")) {
+        gradient.kind = GradientKind::Radial;
+    } else {
+        return {};
+    }
+
+    const std::vector<CssValue>& items = value.items;
+    size_t i = 0;
+    if (!items.empty()) {
+        float degrees = 0.0f;
+        if (items[0].isLength() && items[0].length.unit == LengthUnit::Number) {
+            // Angles reach us already converted to degrees.
+            gradient.angleDegrees = items[0].length.value;
+            i = 1;
+        } else if (items[0].isKeyword() && items[0].keyword.equalsIgnoringCase("to")) {
+            const size_t consumed = toSideAngle(items, 1, degrees);
+            if (consumed > 0) {
+                gradient.angleDegrees = degrees;
+                i = 1 + consumed;
+            }
+        } else if (gradient.kind == GradientKind::Radial && items[0].isKeyword() &&
+                   (items[0].keyword.equalsIgnoringCase("circle") ||
+                    items[0].keyword.equalsIgnoringCase("ellipse"))) {
+            i = 1;
+        }
+    }
+
+    for (; i < items.size(); ++i) {
+        const CssValue& item = items[i];
+        GradientStop stop;
+        if (keywordIs(item, "currentcolor")) {
+            stop.color = style.color;
+        } else if (item.type == ValueType::Color) {
+            stop.color = item.color;
+        } else {
+            continue; // not a colour: skip it rather than reject the gradient
+        }
+        if (i + 1 < items.size() && items[i + 1].isLength() &&
+            (items[i + 1].length.unit == LengthUnit::Percent || items[i + 1].length.unit == LengthUnit::Px)) {
+            const Length& position = items[i + 1].length;
+            // A px position needs the gradient line's length, which is not known
+            // here, so only percentages are honoured.
+            if (position.unit == LengthUnit::Percent) {
+                stop.position = position.value / 100.0f;
+            }
+            ++i;
+        }
+        gradient.stops.push_back(stop);
+    }
+
+    // Stops without a position spread evenly between the ones that have one.
+    if (!gradient.stops.empty()) {
+        if (gradient.stops.front().position < 0.0f) {
+            gradient.stops.front().position = 0.0f;
+        }
+        if (gradient.stops.back().position < 0.0f) {
+            gradient.stops.back().position = 1.0f;
+        }
+        for (size_t k = 1; k + 1 < gradient.stops.size(); ++k) {
+            if (gradient.stops[k].position >= 0.0f) {
+                continue;
+            }
+            size_t next = k + 1;
+            while (next < gradient.stops.size() && gradient.stops[next].position < 0.0f) {
+                ++next;
+            }
+            const float from = gradient.stops[k - 1].position;
+            const float to = next < gradient.stops.size() ? gradient.stops[next].position : 1.0f;
+            const size_t gaps = next - k + 1;
+            for (size_t j = k; j < next; ++j) {
+                gradient.stops[j].position =
+                    from + (to - from) * static_cast<float>(j - k + 1) / static_cast<float>(gaps);
+            }
+            k = next - 1;
+        }
+        // Positions never go backwards, as CSS requires.
+        for (size_t k = 1; k < gradient.stops.size(); ++k) {
+            gradient.stops[k].position = std::max(gradient.stops[k].position, gradient.stops[k - 1].position);
+        }
+    }
+    return gradient.valid() ? gradient : Gradient{};
+}
+
 Display toDisplay(const CssValue& value) {
     if (keywordIs(value, "block")) return Display::Block;
     if (keywordIs(value, "inline")) return Display::Inline;
@@ -769,6 +889,7 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
             break;
         case PropertyId::BackgroundImage:
             style->backgroundImage = value.type == ValueType::Url ? value.text : std::string();
+            style->backgroundGradient = value.type == ValueType::Function ? toGradient(value, *style) : Gradient{};
             break;
         case PropertyId::BackgroundRepeat:
             style->backgroundRepeat = toBackgroundRepeat(value);

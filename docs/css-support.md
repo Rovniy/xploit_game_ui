@@ -32,7 +32,8 @@
 | `flex-direction`, `flex-wrap`, `justify-content`, `align-items`, `align-self`, `align-content` | **готово** | |
 | `flex`, `flex-grow`, `flex-shrink`, `flex-basis` | **готово** | |
 | `gap`, `row-gap`, `column-gap` | **готово** | |
-| `background-color`, `background-image`, `background-size`, `background-position`, `background-repeat` | **готово** | один слой; PNG/JPEG/WebP; `cover`/`contain`/явный размер, повтор через шейдер; градиенты — позже |
+| `background-color`, `background-image`, `background-size`, `background-position`, `background-repeat` | **готово** | один слой; PNG/JPEG/WebP; `cover`/`contain`/явный размер, повтор через шейдер |
+| `linear-gradient`, `radial-gradient` в `background-image` | **готово** | угол в градусах или `to <сторона>`; точки с позициями в процентах; `currentColor` |
 | `color`, `opacity` | **готово** | |
 | `box-shadow` | **готово** | внешние тени (смещение, размытие, spread), вырезаются из border box; `inset` — позже |
 | `font-family`, `font-size`, `font-weight`, `font-style` | **готово** | системные шрифты (DirectWrite) + `fonts/` корня UI, `@font-face` |
@@ -135,3 +136,4 @@
 26. Полоса прокрутки рисуется как простой ползунок шириной 4 px и не настраивается стилями: `::-webkit-scrollbar` и `scrollbar-width` не поддерживаются. Игровой интерфейс, которому нужна своя полоса, собирает её из элементов и двигает через `scrollTop`.
 27. Прокрутка мгновенная: `behavior: 'smooth'` в `scrollTo`/`scrollBy`/`scrollIntoView` игнорируется, плавность делается своей анимацией.
 28. `getBoundingClientRect` возвращает обычный объект с полями, а не живой `DOMRect`; значения посчитаны на момент вызова.
+29. Градиент — один слой поверх `background-color` и под `background-image`. Поддержаны `linear-gradient` с углом или `to <сторона>` и `radial-gradient` с необязательным `circle`/`ellipse`. Ключевые слова размера и позиции у `radial-gradient` (`closest-side`, `at 30% 70%`) игнорируются: рисуется круг из центра до дальнего угла. Позиции точек — только в процентах, `conic-gradient` и повторяющиеся градиенты не поддерживаются.

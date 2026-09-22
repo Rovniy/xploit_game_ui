@@ -15,6 +15,34 @@ enum class Display : uint8_t { Block, Inline, InlineBlock, Flex, InlineFlex, Non
 enum class PositionType : uint8_t { Static, Relative, Absolute, Fixed };
 enum class BoxSizing : uint8_t { ContentBox, BorderBox };
 enum class Overflow : uint8_t { Visible, Hidden, Scroll, Auto };
+
+enum class GradientKind : uint8_t { None, Linear, Radial };
+
+struct GradientStop {
+    Color color;
+    // Position along the gradient line, 0..1. Negative means the stop had no
+    // position and is spread evenly between its neighbours.
+    float position = -1.0f;
+
+    bool operator==(const GradientStop& other) const {
+        return color == other.color && position == other.position;
+    }
+};
+
+// A gradient in `background-image`. Angles follow CSS: 0deg points up and the
+// angle grows clockwise, so 180deg (the default) runs top to bottom.
+struct Gradient {
+    GradientKind kind = GradientKind::None;
+    float angleDegrees = 180.0f;
+    std::vector<GradientStop> stops;
+
+    // Two stops is the least that paints anything.
+    bool valid() const { return kind != GradientKind::None && stops.size() >= 2; }
+
+    bool operator==(const Gradient& other) const {
+        return kind == other.kind && angleDegrees == other.angleDegrees && stops == other.stops;
+    }
+};
 enum class Visibility : uint8_t { Visible, Hidden, Collapse };
 enum class BorderStyle : uint8_t { None, Hidden, Solid, Dashed, Dotted, Double };
 enum class FlexDirection : uint8_t { Row, RowReverse, Column, ColumnReverse };
@@ -119,6 +147,7 @@ struct StyleValues {
     // --- painting ---
     Color backgroundColor = Color::transparent();
     std::string backgroundImage; // resolved url, empty for none
+    Gradient backgroundGradient;
     BackgroundRepeat backgroundRepeat = BackgroundRepeat::Repeat;
     BackgroundSize backgroundSize;
     std::array<Length, 2> backgroundPosition{Length::percent(0.0f), Length::percent(0.0f)};

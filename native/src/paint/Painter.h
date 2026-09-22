@@ -45,6 +45,7 @@ private:
     void paintStackingContext(SkCanvas& canvas, layout::LayoutBox& box);
     void paintBoxAndDescendants(SkCanvas& canvas, layout::LayoutBox& box, bool isStackingContextRoot);
     void paintDecorations(SkCanvas& canvas, layout::LayoutBox& box);
+    void paintBackgroundGradient(SkCanvas& canvas, layout::LayoutBox& box);
     void paintBackgroundImage(SkCanvas& canvas, layout::LayoutBox& box);
     void paintBorders(SkCanvas& canvas, layout::LayoutBox& box);
     void paintShadows(SkCanvas& canvas, layout::LayoutBox& box);

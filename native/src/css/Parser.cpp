@@ -486,6 +486,12 @@ bool normalizeValue(PropertyId property, const std::vector<CssValue>& components
             out = first;
             return true;
         }
+        if (single && first.type == ValueType::Function &&
+            (first.keyword.equalsIgnoringCase("linear-gradient") ||
+             first.keyword.equalsIgnoringCase("radial-gradient"))) {
+            out = first;
+            return true;
+        }
         return single && first.type == ValueType::Url && (out = first, true);
     case PropertyId::BackgroundRepeat:
         return isKeywordIn(first, {"repeat", "no-repeat", "repeat-x", "repeat-y", "space", "round"}) &&
