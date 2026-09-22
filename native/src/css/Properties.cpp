@@ -91,6 +91,9 @@ constexpr std::array<PropertyMeta, kPropertyCount> kProperties = {{
     {"text-transform", true, true},
     {"white-space", true, true},
     {"text-overflow", false, true},
+
+    {"transition", false, false},
+    {"animation", false, false},
 }};
 
 const std::unordered_map<std::string_view, PropertyId>& nameMap() {

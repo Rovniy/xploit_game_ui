@@ -156,6 +156,11 @@ public:
     // there is nothing to show.
     bool updateAndPaint();
 
+    // The host's clock for this frame; transitions and animations measure from
+    // it, so it is the same time the JavaScript timers see.
+    void setFrameTime(double seconds) { frameTime_ = seconds; }
+    double frameTime() const { return frameTime_; }
+
     // Loads an HTML document relative to the UI root ("UI/Menu/index.html"):
     // reads it, parses it, exposes it to JavaScript and runs its <script> tags.
     bool loadDocument(std::string_view relativePath);
@@ -192,6 +197,7 @@ private:
     std::unique_ptr<input::InputRouter> inputRouter_;
     bridge::QueueBridge bridge_;
     uint64_t id_ = 0;
+    double frameTime_ = 0.0;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

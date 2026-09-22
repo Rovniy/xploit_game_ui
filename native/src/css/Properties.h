@@ -99,6 +99,11 @@ enum class PropertyId : uint8_t {
     WhiteSpace,
     TextOverflow,
 
+    // Animation. The list-valued ones hold a whole transition or animation each,
+    // because the cascade needs them as one unit.
+    Transition,
+    Animation,
+
     Count,
 };
 

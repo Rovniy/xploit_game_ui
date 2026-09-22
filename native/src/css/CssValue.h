@@ -46,6 +46,7 @@ enum class LengthUnit : uint8_t {
     Auto,
     None,    // "none" for max-width/max-height
     Number,  // unitless (line-height multiplier, flex-grow, opacity, z-index)
+    Seconds, // time, always normalised to seconds (transition and animation)
 };
 
 struct Length {

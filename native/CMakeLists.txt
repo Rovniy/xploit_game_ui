@@ -104,6 +104,8 @@ add_library(xgu_dom STATIC
     src/css/CssValue.cpp
     src/css/Tokenizer.cpp
     src/css/Parser.cpp
+    src/css/Animation.cpp
+    src/css/Animator.cpp
     src/css/ComputedStyle.cpp
     src/css/StyleEngine.cpp)
 target_link_libraries(xgu_dom PUBLIC xgu_core PRIVATE lexbor::lexbor_static)
@@ -228,7 +230,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/BridgeTest.cpp
         tests/unit/TimerTest.cpp
         tests/unit/ScrollTest.cpp
-        tests/unit/GradientTest.cpp)
+        tests/unit/GradientTest.cpp
+        tests/unit/AnimationTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

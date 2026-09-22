@@ -273,6 +273,7 @@ void Runtime::onTick(double timeSeconds) {
         if (!view || view->paused()) {
             continue;
         }
+        view->setFrameTime(timeSeconds);
         if (IJavaScriptRuntime* js = view->javaScript()) {
             js->tick(timeSeconds);
         }

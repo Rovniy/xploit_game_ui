@@ -2,6 +2,7 @@
 
 #include "css/ComputedStyle.h"
 #include "css/SelectorMatcher.h"
+#include "css/Animator.h"
 #include "css/StyleSheet.h"
 #include "dom/Document.h"
 
@@ -60,8 +61,13 @@ public:
     void clearAuthorStyleSheets();
 
     // Recomputes styles for every element whose subtree is marked dirty.
-    // `viewport` is in CSS pixels and resolves vw/vh.
-    void recalcStyles(float viewportWidth, float viewportHeight);
+    // `viewport` is in CSS pixels and resolves vw/vh; `timeSeconds` drives
+    // transitions and animations.
+    void recalcStyles(float viewportWidth, float viewportHeight, double timeSeconds = 0.0);
+
+    // True when a transition or an animation is still moving, so the next frame
+    // has to restyle even if nothing else changed.
+    bool hasRunningAnimations() const { return animator_.hasRunning(); }
     // Forces a full recalculation on the next recalcStyles().
     void invalidateAll();
 
@@ -79,14 +85,18 @@ public:
 
 private:
     void rebuildIndex();
+    // Gathers the @keyframes of every sheet for the animator.
+    void collectKeyframes();
     void recalcSubtree(dom::Element& element, const ComputedStyle& parentStyle, bool force);
-    RefPtr<ComputedStyle> computeStyle(dom::Element& element, const ComputedStyle& parentStyle);
+    RefPtr<ComputedStyle> computeStyle(dom::Element& element, const ComputedStyle& parentStyle,
+                                      const DeclarationBlock* extra = nullptr);
 
     dom::Document& document_;
     StyleSheet userAgentSheet_;
     std::vector<StyleSheet> authorSheets_;
     RuleIndex index_;
     SelectorMatcher matcher_;
+    Animator animator_;
     std::vector<std::string> warnings_;
     LengthContext lengthContext_;
     bool indexDirty_ = true;

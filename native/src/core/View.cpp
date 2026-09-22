@@ -118,7 +118,7 @@ bool View::updateStyleAndLayout() {
     // Layout works in CSS pixels; the painter scales to device pixels.
     const float cssWidth = static_cast<float>(width()) / dpr;
     const float cssHeight = static_cast<float>(height()) / dpr;
-    styleEngine_->recalcStyles(cssWidth, cssHeight);
+    styleEngine_->recalcStyles(cssWidth, cssHeight, frameTime_);
     layoutEngine_->layout(cssWidth, cssHeight, dpr);
     return true;
 }

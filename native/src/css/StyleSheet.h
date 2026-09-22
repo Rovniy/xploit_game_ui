@@ -2,6 +2,7 @@
 
 #include "css/CssValue.h"
 #include "css/Properties.h"
+#include "css/Animation.h"
 #include "css/Selector.h"
 
 #include <memory>
@@ -34,6 +35,8 @@ struct StyleRule {
 // A parsed stylesheet: one flattened rule per selector.
 struct StyleSheet {
     std::vector<StyleRule> rules;
+    // @keyframes blocks, in source order. A later one with the same name wins.
+    std::vector<KeyframesRule> keyframes;
     // Diagnostics collected while parsing (unknown properties, bad values).
     std::vector<std::string> warnings;
 

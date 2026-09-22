@@ -2,6 +2,7 @@
 
 #include "core/Atom.h"
 #include "core/RefCounted.h"
+#include "css/Animation.h"
 #include "css/CssValue.h"
 
 #include <array>
@@ -158,6 +159,11 @@ struct StyleValues {
     std::array<Length, 2> transformOrigin{Length::percent(50.0f), Length::percent(50.0f)};
     PointerEvents pointerEvents = PointerEvents::Auto;
     Atom cursor;
+
+    // --- animation ---
+    // Usually empty, so the vector costs nothing for most elements.
+    std::vector<TransitionSpec> transitions;
+    AnimationSpec animation;
 
     // --- text (inherited) ---
     Color color = Color::black();

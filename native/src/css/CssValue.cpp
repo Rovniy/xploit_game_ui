@@ -91,6 +91,7 @@ float resolveLength(const Length& length, const LengthContext& context, float fa
     case LengthUnit::Percent:
     case LengthUnit::Auto:
     case LengthUnit::None:
+    case LengthUnit::Seconds:
         break;
     }
     return fallback;

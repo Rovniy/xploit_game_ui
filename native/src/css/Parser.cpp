@@ -157,8 +157,10 @@ Length lengthFromToken(const Token& token, bool& ok) {
         if (unit == "rad") return Length::number(value * 180.0f / 3.14159265358979323846f);
         if (unit == "grad") return Length::number(value * 0.9f);
         if (unit == "turn") return Length::number(value * 360.0f);
-        // Time and resolution units are accepted and ignored (transitions are out of scope).
-        if (unit == "s" || unit == "ms") return Length::number(value);
+        // Times keep their own unit so a duration can be told from a count, and
+        // they are normalised to seconds here.
+        if (unit == "s") return Length{value, LengthUnit::Seconds};
+        if (unit == "ms") return Length{value / 1000.0f, LengthUnit::Seconds};
     }
     ok = false;
     return Length::zero();
@@ -480,6 +482,17 @@ bool normalizeValue(PropertyId property, const std::vector<CssValue>& components
         }
         return single && first.isLength() && first.length.unit == LengthUnit::Number &&
                (out = CssValue::makeNumber(std::clamp(first.length.value, 0.0f, 1.0f)), true);
+
+    case PropertyId::Transition:
+    case PropertyId::Animation:
+        // Kept as the raw component list; the cascade turns it into the typed
+        // specs, where the timing functions and durations are resolved.
+        if (single && isKeywordIn(first, {"none"})) {
+            out = first;
+            return true;
+        }
+        out = CssValue::makeList(components);
+        return !components.empty();
 
     case PropertyId::BackgroundImage:
         if (single && isKeywordIn(first, {"none"})) {
@@ -1096,6 +1109,79 @@ bool parseDeclaration(std::string_view name, std::string_view valueText, Declara
     return true;
 }
 
+// @keyframes <name> { <selector> { <declarations> } ... } where a selector is a
+// percentage, `from` or `to`, possibly several separated by commas.
+void parseKeyframes(const std::string& name, std::string_view body, StyleSheet& sheet) {
+    if (name.empty()) {
+        return;
+    }
+    KeyframesRule rule;
+    rule.name = Atom(name);
+
+    size_t position = 0;
+    while (position < body.size()) {
+        const size_t brace = body.find('{', position);
+        if (brace == std::string_view::npos) {
+            break;
+        }
+        const std::string selectors = trim(body.substr(position, brace - position));
+        size_t scan = brace + 1;
+        int depth = 1;
+        while (scan < body.size() && depth > 0) {
+            if (body[scan] == '{') {
+                ++depth;
+            } else if (body[scan] == '}') {
+                --depth;
+            }
+            ++scan;
+        }
+        const std::string_view declarationText =
+            body.substr(brace + 1, (depth == 0 ? scan - 1 : body.size()) - brace - 1);
+        position = scan;
+
+        DeclarationBlock declarations = parseDeclarationBlock(declarationText, &sheet.warnings);
+        if (declarations.empty()) {
+            continue;
+        }
+        auto shared = std::make_shared<const DeclarationBlock>(std::move(declarations));
+
+        size_t start = 0;
+        while (start <= selectors.size()) {
+            const size_t comma = selectors.find(',', start);
+            const std::string piece =
+                lowered(trim(selectors.substr(start, comma == std::string::npos ? std::string::npos : comma - start)));
+            start = comma == std::string::npos ? selectors.size() + 1 : comma + 1;
+            if (piece.empty()) {
+                continue;
+            }
+            float offset = -1.0f;
+            if (piece == "from") {
+                offset = 0.0f;
+            } else if (piece == "to") {
+                offset = 1.0f;
+            } else if (piece.back() == '%') {
+                try {
+                    offset = std::stof(piece.substr(0, piece.size() - 1)) / 100.0f;
+                } catch (const std::exception&) {
+                    offset = -1.0f;
+                }
+            }
+            if (offset < 0.0f || offset > 1.0f) {
+                addWarning(&sheet.warnings, "keyframe selector ignored: " + piece);
+                continue;
+            }
+            rule.steps.push_back(KeyframeStep{offset, shared});
+        }
+    }
+
+    if (rule.steps.empty()) {
+        return;
+    }
+    std::stable_sort(rule.steps.begin(), rule.steps.end(),
+                     [](const KeyframeStep& a, const KeyframeStep& b) { return a.offset < b.offset; });
+    sheet.keyframes.push_back(std::move(rule));
+}
+
 DeclarationBlock parseDeclarationBlock(std::string_view text, std::vector<std::string>* warnings) {
     DeclarationBlock block;
     parseDeclarationList(text, block, warnings);
@@ -1124,9 +1210,30 @@ StyleSheet parseStyleSheet(std::string_view css, Origin origin, uint32_t firstOr
             break;
         }
 
-        // At-rules are skipped whole (media queries and friends are out of scope).
+        // At-rules are skipped whole (media queries and friends are out of scope),
+        // except @keyframes, which the animation engine needs.
         if (css[position] == '@') {
             const size_t brace = css.find('{', position);
+            if (brace != std::string_view::npos) {
+                const std::string prelude = trim(css.substr(position, brace - position));
+                if (prelude.size() > 10 && lowered(prelude.substr(0, 10)) == "@keyframes") {
+                    size_t scan = brace + 1;
+                    int depth = 1;
+                    while (scan < css.size() && depth > 0) {
+                        if (css[scan] == '{') {
+                            ++depth;
+                        } else if (css[scan] == '}') {
+                            --depth;
+                        }
+                        ++scan;
+                    }
+                    const std::string_view body =
+                        css.substr(brace + 1, (depth == 0 ? scan - 1 : css.size()) - brace - 1);
+                    parseKeyframes(trim(prelude.substr(10)), body, sheet);
+                    position = scan;
+                    continue;
+                }
+            }
             const size_t semicolon = css.find(';', position);
             if (semicolon != std::string_view::npos && (brace == std::string_view::npos || semicolon < brace)) {
                 addWarning(&sheet.warnings, "at-rule ignored: " + trim(css.substr(position, semicolon - position)));

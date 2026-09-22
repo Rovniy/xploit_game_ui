@@ -66,6 +66,151 @@ bool keywordIs(const CssValue& value, const char* name) {
 
 // --- value -> typed field conversions ---------------------------------------
 
+TimingFunction toTimingFunction(const CssValue& value) {
+    TimingFunction timing;
+    if (value.type == ValueType::Function && value.keyword.equalsIgnoringCase("cubic-bezier") &&
+        value.items.size() >= 4) {
+        timing.kind = TimingKind::CubicBezier;
+        timing.x1 = value.items[0].length.value;
+        timing.y1 = value.items[1].length.value;
+        timing.x2 = value.items[2].length.value;
+        timing.y2 = value.items[3].length.value;
+        return timing;
+    }
+    if (!value.isKeyword()) {
+        return timing;
+    }
+    if (value.keyword.equalsIgnoringCase("linear")) timing.kind = TimingKind::Linear;
+    else if (value.keyword.equalsIgnoringCase("ease-in")) timing.kind = TimingKind::EaseIn;
+    else if (value.keyword.equalsIgnoringCase("ease-out")) timing.kind = TimingKind::EaseOut;
+    else if (value.keyword.equalsIgnoringCase("ease-in-out")) timing.kind = TimingKind::EaseInOut;
+    else timing.kind = TimingKind::Ease;
+    return timing;
+}
+
+bool isTimingKeyword(const CssValue& value) {
+    if (value.type == ValueType::Function) {
+        return value.keyword.equalsIgnoringCase("cubic-bezier");
+    }
+    return value.isKeyword() &&
+           (value.keyword.equalsIgnoringCase("linear") || value.keyword.equalsIgnoringCase("ease") ||
+            value.keyword.equalsIgnoringCase("ease-in") || value.keyword.equalsIgnoringCase("ease-out") ||
+            value.keyword.equalsIgnoringCase("ease-in-out"));
+}
+
+bool isTime(const CssValue& value) { return value.isLength() && value.length.unit == LengthUnit::Seconds; }
+
+// transition: <property> <duration> [<timing>] [<delay>], ...
+//
+// The parser drops the commas, which is fine: a property name always starts the
+// next entry and nothing else in this syntax is a bare property name.
+std::vector<TransitionSpec> toTransitions(const CssValue& value) {
+    std::vector<TransitionSpec> result;
+    const std::vector<CssValue>& items = value.type == ValueType::List ? value.items
+                                                                       : std::vector<CssValue>{};
+    std::vector<CssValue> single;
+    const std::vector<CssValue>* list = &items;
+    if (value.type != ValueType::List) {
+        single.push_back(value);
+        list = &single;
+    }
+
+    for (const CssValue& item : *list) {
+        const bool startsEntry =
+            item.isKeyword() && !isTimingKeyword(item) &&
+            (item.keyword.equalsIgnoringCase("all") || propertyFromName(item.keyword.view()) !=
+                                                            PropertyId::Invalid);
+        if (startsEntry || result.empty()) {
+            TransitionSpec spec;
+            if (item.isKeyword() && item.keyword.equalsIgnoringCase("all")) {
+                spec.all = true;
+            } else if (startsEntry) {
+                spec.property = propertyFromName(item.keyword.view());
+            } else {
+                spec.all = true; // a duration with no property means "all"
+            }
+            result.push_back(spec);
+            if (startsEntry) {
+                continue;
+            }
+        }
+        TransitionSpec& spec = result.back();
+        if (isTime(item)) {
+            // The first time is the duration, the second the delay.
+            if (spec.durationSeconds == 0.0f) {
+                spec.durationSeconds = item.length.value;
+            } else {
+                spec.delaySeconds = item.length.value;
+            }
+        } else if (isTimingKeyword(item)) {
+            spec.timing = toTimingFunction(item);
+        }
+    }
+
+    // Entries with no duration animate nothing.
+    result.erase(std::remove_if(result.begin(), result.end(),
+                                [](const TransitionSpec& spec) { return spec.durationSeconds <= 0.0f; }),
+                 result.end());
+    return result;
+}
+
+// animation: <name> <duration> [<timing>] [<delay>] [<count>] [<direction>] [<fill>]
+AnimationSpec toAnimation(const CssValue& value) {
+    AnimationSpec spec;
+    std::vector<CssValue> single;
+    const std::vector<CssValue>* list = &value.items;
+    if (value.type != ValueType::List) {
+        single.push_back(value);
+        list = &single;
+    }
+
+    for (const CssValue& item : *list) {
+        if (isTime(item)) {
+            if (spec.durationSeconds == 0.0f) {
+                spec.durationSeconds = item.length.value;
+            } else {
+                spec.delaySeconds = item.length.value;
+            }
+            continue;
+        }
+        if (isTimingKeyword(item)) {
+            spec.timing = toTimingFunction(item);
+            continue;
+        }
+        if (item.isLength() && item.length.unit == LengthUnit::Number) {
+            spec.iterations = item.length.value;
+            continue;
+        }
+        if (!item.isKeyword()) {
+            continue;
+        }
+        const Atom& word = item.keyword;
+        if (word.equalsIgnoringCase("infinite")) {
+            spec.iterations = -1.0f;
+        } else if (word.equalsIgnoringCase("normal")) {
+            spec.direction = AnimationDirection::Normal;
+        } else if (word.equalsIgnoringCase("reverse")) {
+            spec.direction = AnimationDirection::Reverse;
+        } else if (word.equalsIgnoringCase("alternate")) {
+            spec.direction = AnimationDirection::Alternate;
+        } else if (word.equalsIgnoringCase("alternate-reverse")) {
+            spec.direction = AnimationDirection::AlternateReverse;
+        } else if (word.equalsIgnoringCase("forwards")) {
+            spec.fill = AnimationFillMode::Forwards;
+        } else if (word.equalsIgnoringCase("backwards")) {
+            spec.fill = AnimationFillMode::Backwards;
+        } else if (word.equalsIgnoringCase("both")) {
+            spec.fill = AnimationFillMode::Both;
+        } else if (word.equalsIgnoringCase("none")) {
+            // `none` as a fill mode; as a name it would mean no animation, and
+            // an empty name already says that.
+        } else if (spec.name.view().empty()) {
+            spec.name = word; // the first unrecognised keyword is the name
+        }
+    }
+    return spec;
+}
+
 // "to right", "to bottom left", ... as the CSS angle they stand for. Returns the
 // number of keywords consumed, or zero when this is not a side specification.
 size_t toSideAngle(const std::vector<CssValue>& items, size_t first, float& outDegrees) {
@@ -545,6 +690,7 @@ void StyleEngine::addStyleSheet(std::string_view css, Origin origin) {
     authorSheets_.push_back(std::move(sheet));
     indexDirty_ = true;
     forceFullRecalc_ = true;
+    collectKeyframes();
 }
 
 void StyleEngine::clearAuthorStyleSheets() {
@@ -553,6 +699,7 @@ void StyleEngine::clearAuthorStyleSheets() {
     nextRuleOrder_ = static_cast<uint32_t>(userAgentSheet_.rules.size());
     indexDirty_ = true;
     forceFullRecalc_ = true;
+    collectKeyframes();
 }
 
 void StyleEngine::reloadStyleSheets() {
@@ -595,6 +742,20 @@ void StyleEngine::reloadStyleSheets() {
         }
         addStyleSheet(*contents);
     }
+    collectKeyframes();
+}
+
+void StyleEngine::collectKeyframes() {
+    std::vector<KeyframesRule> all;
+    for (const KeyframesRule& rule : userAgentSheet_.keyframes) {
+        all.push_back(rule);
+    }
+    for (const StyleSheet& sheet : authorSheets_) {
+        for (const KeyframesRule& rule : sheet.keyframes) {
+            all.push_back(rule);
+        }
+    }
+    animator_.setKeyframes(std::move(all));
 }
 
 void StyleEngine::rebuildIndex() {
@@ -619,7 +780,10 @@ void StyleEngine::onNodeInserted(dom::Node& node) {
     node.markDirty(dom::kDirtyStyleSelf | dom::kDirtyStyleChildren);
 }
 
-void StyleEngine::onNodeRemoved(dom::Node&, dom::Node& formerParent) {
+void StyleEngine::onNodeRemoved(dom::Node& node, dom::Node& formerParent) {
+    if (node.isElement()) {
+        animator_.forget(static_cast<dom::Element&>(node));
+    }
     formerParent.markDirty(dom::kDirtyStyleChildren | dom::kDirtyLayoutTree);
 }
 
@@ -635,7 +799,8 @@ void StyleEngine::onTextChanged(dom::CharacterData& node) {
     }
 }
 
-RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const ComputedStyle& parentStyle) {
+RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const ComputedStyle& parentStyle,
+                                                const DeclarationBlock* extra) {
     // 1. Inherit, then apply the initial values of non-inherited properties.
     RefPtr<ComputedStyle> style = makeRef<ComputedStyle>();
     style->setValues(ComputedStyle::initial());
@@ -669,6 +834,16 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
         for (const Declaration& declaration : *inlineStyle) {
             const uint64_t layer = declaration.important ? 4ull : 3ull;
             candidates.push_back(Candidate{&declaration, (layer << 56) | 0xFFFFFFFFFFull});
+        }
+    }
+
+    // Keyframe declarations sit above everything else in the cascade, which is
+    // what an animation means; they arrive already sorted among themselves.
+    if (extra) {
+        // Layer 3 is the inline layer; the maximum low part puts animations
+        // above inline styles and still below anything !important (layer 4).
+        for (const Declaration& declaration : *extra) {
+            candidates.push_back(Candidate{&declaration, (3ull << 56) | 0xFFFFFFFFFFFFFFull});
         }
     }
 
@@ -887,6 +1062,12 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
         case PropertyId::BackgroundColor:
             style->backgroundColor = keywordIs(value, "currentcolor") ? style->color : value.color;
             break;
+        case PropertyId::Transition:
+            style->transitions = keywordIs(value, "none") ? std::vector<TransitionSpec>{} : toTransitions(value);
+            break;
+        case PropertyId::Animation:
+            style->animation = keywordIs(value, "none") ? AnimationSpec{} : toAnimation(value);
+            break;
         case PropertyId::BackgroundImage:
             style->backgroundImage = value.type == ValueType::Url ? value.text : std::string();
             style->backgroundGradient = value.type == ValueType::Function ? toGradient(value, *style) : Gradient{};
@@ -1074,13 +1255,23 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
 void StyleEngine::recalcSubtree(dom::Element& element, const ComputedStyle& parentStyle, bool force) {
     const bool selfDirty = force || (element.dirtyBits() & dom::kDirtyStyleSelf) != 0;
     const bool childrenDirty = force || (element.dirtyBits() & dom::kDirtyStyleChildren) != 0;
-    if (!selfDirty && !childrenDirty) {
+    if (!selfDirty && !childrenDirty && !animator_.hasRunning()) {
         return;
     }
 
+    // An element with something running restyles every frame, even when nothing
+    // else touched it.
+    const bool animating = animator_.hasRunning() && animator_.isAnimating(element);
+
     bool inheritedChanged = force;
-    if (selfDirty || !element.computedStyle()) {
+    if (selfDirty || animating || !element.computedStyle()) {
         RefPtr<ComputedStyle> computed = computeStyle(element, parentStyle);
+        // Transitions and animations turn the cascade's result into what is
+        // actually shown this frame.
+        computed = animator_.apply(element, std::move(computed),
+                                   [this, &element, &parentStyle](const DeclarationBlock* extra) {
+                                       return computeStyle(element, parentStyle, extra);
+                                   });
         const ComputedStyle* previous = element.computedStyle();
         if (previous) {
             const ComputedStyle::Diff difference = ComputedStyle::diff(*previous, *computed);
@@ -1105,7 +1296,8 @@ void StyleEngine::recalcSubtree(dom::Element& element, const ComputedStyle& pare
     element.clearDirty(dom::kDirtyStyleSelf | dom::kDirtyStyleChildren);
 }
 
-void StyleEngine::recalcStyles(float viewportWidth, float viewportHeight) {
+void StyleEngine::recalcStyles(float viewportWidth, float viewportHeight, double timeSeconds) {
+    animator_.setTime(timeSeconds);
     if (indexDirty_) {
         rebuildIndex();
     }
