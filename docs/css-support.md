@@ -80,7 +80,7 @@
 | `document.documentElement`, `head`, `body`, `title`, `URL`, `getElementsByClassName`, `getElementsByTagName` | **готово** |
 | `Element`: `id`, `className`, `classList` (add/remove/toggle/contains/item/length/value), `getAttribute/setAttribute/removeAttribute/hasAttribute`, `textContent`, `innerHTML`, `outerHTML`, `children`, `childNodes`, `parentNode`, `parentElement`, `firstChild`/`lastChild`/`nextSibling`/`previousSibling`, `appendChild`, `insertBefore`, `removeChild`, `remove`, `contains`, `matches`, `tagName`, `nodeType`, `nodeName`, `isConnected` | **готово** |
 | `Element.style` (свойства через camelCase, сокращённые свойства, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
-| `getBoundingClientRect` | план (Этап 8) |
+| `getBoundingClientRect` | план |
 | `addEventListener`/`removeEventListener`/`dispatchEvent`, `new Event(type, init)`, `Event` (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`, `target`, `currentTarget`, `eventPhase`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent`, опции `capture`/`once` | **готово** |
 | `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `requestAnimationFrame`/`cancelAnimationFrame`, `performance.now` | **готово** |
 | `console.log/warn/error/info/debug` → Unity Console | **готово** |
