@@ -15,6 +15,7 @@ TEST(CApi, VersionIsNonEmpty) {
 TEST(CApi, InitializeIsIdempotent) {
     xgu_init_desc desc{};
     desc.struct_size = sizeof(desc);
+    desc.flags = XGU_INIT_SINGLE_THREADED;
     EXPECT_EQ(xgu_initialize(&desc), XGU_OK);
     EXPECT_TRUE(xgu_is_initialized());
     EXPECT_EQ(xgu_initialize(&desc), XGU_OK);
@@ -22,6 +23,8 @@ TEST(CApi, InitializeIsIdempotent) {
     xgu_shutdown();
     EXPECT_FALSE(xgu_is_initialized());
     xgu_shutdown(); // second shutdown is a no-op
+    // Re-initialise so later tests in this process keep the single-threaded runtime.
+    EXPECT_EQ(xgu_initialize(&desc), XGU_OK);
 }
 
 TEST(CApi, InvalidViewIdsAreRejected) {

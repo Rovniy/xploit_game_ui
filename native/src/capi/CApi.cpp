@@ -6,6 +6,7 @@
 #include "core/Runtime.h"
 #include "render/skia/TestFrame.h"
 
+#include <cstddef>
 #include <string>
 
 using namespace xgu;
@@ -16,6 +17,13 @@ void XGU_RENDER_EVENT_CALLBACK(int eventId, void* data) { Runtime::instance().re
 
 bool withView(xgu_view_id id, const std::function<void(View&)>& fn) {
     return Runtime::instance().views().withView(static_cast<ViewId>(id), fn);
+}
+
+// True when `desc->struct_size` covers `field` (forward-compatible struct growth).
+template <typename Struct, typename Field>
+bool hasField(const Struct* desc, Field Struct::*field) {
+    const auto offset = reinterpret_cast<const char*>(&(desc->*field)) - reinterpret_cast<const char*>(desc);
+    return desc->struct_size >= static_cast<uint32_t>(offset) + sizeof(Field);
 }
 
 } // namespace
@@ -36,10 +44,17 @@ XGU_API xgu_status xgu_initialize(const xgu_init_desc* desc) {
         if (desc->struct_size < sizeof(uint32_t)) {
             return XGU_ERR_INVALID_ARGUMENT;
         }
-        init.logCallback = desc->log_fn;
-        init.logUser = desc->log_user;
-        if (desc->data_dir) {
+        if (hasField(desc, &xgu_init_desc::log_fn)) {
+            init.logCallback = desc->log_fn;
+        }
+        if (hasField(desc, &xgu_init_desc::log_user)) {
+            init.logUser = desc->log_user;
+        }
+        if (hasField(desc, &xgu_init_desc::data_dir) && desc->data_dir) {
             init.dataDir = desc->data_dir;
+        }
+        if (hasField(desc, &xgu_init_desc::flags)) {
+            init.singleThreaded = (desc->flags & XGU_INIT_SINGLE_THREADED) != 0;
         }
     }
     return Runtime::instance().initialize(init) ? XGU_OK : XGU_ERR_INTERNAL;
@@ -50,6 +65,8 @@ XGU_API void xgu_shutdown(void) { Runtime::instance().shutdown(); }
 XGU_API bool xgu_is_initialized(void) { return Runtime::instance().initialized(); }
 
 XGU_API void xgu_set_log_callback(xgu_log_fn fn, void* user) { Log::setCallback(fn, user); }
+
+XGU_API void xgu_tick(double time_seconds) { Runtime::instance().tick(time_seconds); }
 
 XGU_API xgu_provider xgu_render_provider(void) {
     switch (Runtime::instance().render().activeProvider()) {
@@ -95,9 +112,6 @@ XGU_API xgu_view_id xgu_view_create(const xgu_view_desc* desc) {
     default:
         view.provider = ProviderKind::Auto;
         break;
-    }
-    if (view.provider == ProviderKind::Cpu && view.format == TextureFormat::BGRA8 && desc->format != XGU_FORMAT_BGRA8) {
-        view.format = TextureFormat::RGBA8;
     }
     if (desc->ui_root) {
         view.uiRoot = desc->ui_root;
@@ -156,6 +170,31 @@ XGU_API bool xgu_view_acquire_pixels(xgu_view_id view, const void** out_data, ui
 
 XGU_API void xgu_view_release_pixels(xgu_view_id view) {
     withView(view, [&](View& v) { Runtime::instance().render().releasePixels(v); });
+}
+
+XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, const char* origin) {
+    if (!source) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    const bool ok = Runtime::instance().executeJavaScript(static_cast<ViewId>(view), std::string(source),
+                                                          origin ? std::string(origin) : std::string("<execute_js>"));
+    return ok ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_view_set_paused(xgu_view_id view, bool paused) {
+    const bool ok = withView(view, [&](View& v) { v.setPaused(paused); });
+    return ok ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_view_state xgu_view_get_state(xgu_view_id view) {
+    xgu_view_state state = XGU_STATE_DESTROYED;
+    withView(view, [&](View& v) {
+        state = v.paused() ? XGU_STATE_PAUSED : static_cast<xgu_view_state>(static_cast<int>(v.state()));
+    });
+    return state;
 }
 
 XGU_API void xgu_views_destroy_all(void) { Runtime::instance().destroyAllViews(); }

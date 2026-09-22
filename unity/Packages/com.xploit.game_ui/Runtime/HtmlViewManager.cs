@@ -117,6 +117,8 @@ namespace Xploit.GameUI
             {
                 return;
             }
+            // One runtime frame for every view (JS message loop; later timers, layout, paint).
+            Native.xgu_tick(Time.unscaledTimeAsDouble);
             for (int i = 0; i < m_views.Count; i++)
             {
                 var view = m_views[i];

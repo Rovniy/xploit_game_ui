@@ -298,8 +298,46 @@ namespace Xploit.GameUI
         /// <summary>Reloads the current document (Stage 3).</summary>
         public void Reload() => throw new NotImplementedException("HtmlView.Reload arrives in Stage 3 (HTML/DOM).");
 
-        /// <summary>Executes JavaScript in the view (Stage 2).</summary>
-        public void ExecuteJS(string javascript) => throw new NotImplementedException("HtmlView.ExecuteJS arrives in Stage 2 (V8).");
+        /// <summary>
+        /// Compiles and runs JavaScript in this view's isolate (on the native runtime thread).
+        /// console.* output and uncaught errors appear in the Unity Console.
+        /// </summary>
+        public void ExecuteJS(string javascript) => ExecuteJS(javascript, null);
+
+        /// <param name="origin">Name shown in error stack traces; defaults to "&lt;view name&gt;.ExecuteJS".</param>
+        public void ExecuteJS(string javascript, string origin)
+        {
+            if (!IsCreated)
+            {
+                Debug.LogWarning($"[xploit_game_ui] ExecuteJS on a view that is not created (\"{name}\")");
+                return;
+            }
+            if (string.IsNullOrEmpty(javascript))
+            {
+                return;
+            }
+            var status = Native.xgu_view_execute_js(m_handle, javascript, origin ?? $"{name}.ExecuteJS");
+            if (status != Native.Status.Ok)
+            {
+                Debug.LogError($"[xploit_game_ui] ExecuteJS failed: {status}");
+            }
+        }
+
+        /// <summary>Pauses JavaScript timers and frame processing for this view.</summary>
+        public bool Paused
+        {
+            get => IsCreated && Native.xgu_view_get_state(m_handle) == Native.ViewState.Paused;
+            set
+            {
+                if (IsCreated)
+                {
+                    Native.xgu_view_set_paused(m_handle, value);
+                }
+            }
+        }
+
+        /// <summary>Lifecycle state of the native view.</summary>
+        public Native.ViewState State => IsCreated ? Native.xgu_view_get_state(m_handle) : Native.ViewState.Destroyed;
 
         /// <summary>Sends an event to JavaScript: Unity.on(eventName, ...) (Stage 7).</summary>
         public void Send(string eventName, params object[] args) => throw new NotImplementedException("HtmlView.Send arrives in Stage 7 (bridge).");

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/interfaces/IJavaScriptRuntime.h"
 #include "render/DisplayList.h"
 #include "render/FrameMailbox.h"
 
@@ -13,6 +14,17 @@ namespace xgu {
 enum class TextureFormat : uint8_t { BGRA8 = 0, RGBA8 = 1 };
 
 enum class ProviderKind : uint8_t { Auto = 0, D3D12External = 1, D3D12Copy = 2, Cpu = 3, None = 4 };
+
+// Lifecycle states mirrored to the C ABI (xgu_view_state).
+enum class ViewState : int {
+    Created = 0,
+    Loading = 1,
+    DomReady = 2,
+    JsReady = 3,
+    Interactive = 4,
+    Paused = 5,
+    Destroyed = 6,
+};
 
 struct ViewDesc {
     uint32_t width = 0;  // device pixels
@@ -40,8 +52,9 @@ struct ViewSurface {
     TextureFormat format = TextureFormat::BGRA8;
 };
 
-// A view is one HTML document rendered to one texture. Stage 1 holds only the
-// rendering state; DOM/CSS/JS state is added in later stages.
+// A view is one HTML document rendered to one texture. Rendering state is
+// touched from the main and submission threads through thread-safe members;
+// the JavaScript runtime (and later DOM/CSS/layout) belongs to the runtime thread.
 class View {
 public:
     explicit View(ViewDesc desc);
@@ -73,7 +86,20 @@ public:
     // Returns the flags and clears the ones in `clearMask`.
     uint32_t readStatus(uint32_t clearMask);
 
+    ViewState state() const { return static_cast<ViewState>(state_.load(std::memory_order_acquire)); }
+    void setState(ViewState state) { state_.store(static_cast<int>(state), std::memory_order_release); }
+    bool paused() const { return paused_.load(std::memory_order_acquire); }
+    void setPaused(bool paused) { paused_.store(paused, std::memory_order_release); }
+
     uint64_t nextFrameId() { return ++frameCounter_; }
+
+    // --- runtime thread only -------------------------------------------------
+    // Factory used to create the JavaScript runtime lazily (installed by Runtime).
+    static void setJavaScriptRuntimeFactory(JavaScriptRuntimeFactory factory);
+    // Returns the runtime, creating it on first use; nullptr when unavailable.
+    IJavaScriptRuntime* ensureJavaScript();
+    IJavaScriptRuntime* javaScript() const { return js_.get(); }
+    void disposeJavaScript();
 
 private:
     ViewDesc desc_;
@@ -82,9 +108,13 @@ private:
     std::atomic<uint32_t> height_;
     std::atomic<float> dpr_;
     std::atomic<uint32_t> status_{0};
+    std::atomic<int> state_{static_cast<int>(ViewState::Created)};
+    std::atomic<bool> paused_{false};
     uint64_t frameCounter_ = 0;
     render::FrameMailbox mailbox_;
     std::unique_ptr<ViewSurface> surface_;
+    std::unique_ptr<IJavaScriptRuntime> js_;
+    bool jsFailed_ = false;
 };
 
 } // namespace xgu

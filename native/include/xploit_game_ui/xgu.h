@@ -80,12 +80,28 @@ enum xgu_view_status_flags {
     XGU_ST_PIXELS_READY = 1 << 3       /* CPU provider: a new pixel buffer is available */
 };
 
+typedef enum xgu_init_flags {
+    XGU_INIT_SINGLE_THREADED = 1 << 0 /* run the runtime inline on the calling thread (tests, tools) */
+} xgu_init_flags;
+
 typedef struct xgu_init_desc {
     uint32_t struct_size; /* sizeof(xgu_init_desc) */
     xgu_log_fn log_fn;    /* optional; may be NULL */
     void* log_user;
-    const char* data_dir; /* optional; shader cache, V8 blobs */
+    const char* data_dir; /* optional; directory searched first for icudtl.dat */
+    uint32_t flags;       /* xgu_init_flags */
 } xgu_init_desc;
+
+/* Lifecycle state of a view (see docs/threading.md). */
+typedef enum xgu_view_state {
+    XGU_STATE_CREATED = 0,
+    XGU_STATE_LOADING = 1,
+    XGU_STATE_DOM_READY = 2,
+    XGU_STATE_JS_READY = 3,
+    XGU_STATE_INTERACTIVE = 4,
+    XGU_STATE_PAUSED = 5,
+    XGU_STATE_DESTROYED = 6
+} xgu_view_state;
 
 typedef struct xgu_view_desc {
     uint32_t struct_size; /* sizeof(xgu_view_desc) */
@@ -118,6 +134,11 @@ XGU_API bool xgu_is_initialized(void);
 
 /* Any thread. Replaces the log callback given in xgu_initialize. */
 XGU_API void xgu_set_log_callback(xgu_log_fn fn, void* user);
+
+/* Advances every view by one frame on the runtime thread (JS message loop and
+   microtasks; timers, requestAnimationFrame and layout in later stages).
+   Call once per host frame with a monotonic time in seconds. */
+XGU_API void xgu_tick(double time_seconds);
 
 /* -------------------------------------------------------------------------- */
 /* Rendering                                                                   */
@@ -154,6 +175,18 @@ XGU_API uint32_t xgu_view_status(xgu_view_id view);
 XGU_API bool xgu_view_acquire_pixels(xgu_view_id view, const void** out_data, uint32_t* out_size,
                                      uint32_t* out_width, uint32_t* out_height, uint64_t* out_frame_id);
 XGU_API void xgu_view_release_pixels(xgu_view_id view);
+
+/* -------------------------------------------------------------------------- */
+/* JavaScript                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/* Compiles and runs `source` in the view's isolate on the runtime thread.
+   `origin` names the script in error messages (may be NULL). Uncaught errors
+   are logged as XGU_LOG_ERROR ("Uncaught ..."). */
+XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, const char* origin);
+
+XGU_API xgu_status xgu_view_set_paused(xgu_view_id view, bool paused);
+XGU_API xgu_view_state xgu_view_get_state(xgu_view_id view);
 
 /* Destroys every view; call from AssemblyReloadEvents.beforeAssemblyReload. */
 XGU_API void xgu_views_destroy_all(void);

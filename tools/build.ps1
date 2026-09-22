@@ -67,7 +67,7 @@ if (-not $SkipCopy) {
     $bin = Join-Path $buildDir 'bin'
     $dest = Join-Path $root 'unity\Packages\com.xploit.game_ui\Plugins\x86_64'
     New-Item -ItemType Directory -Force $dest | Out-Null
-    foreach ($pattern in @('xploit_game_ui.dll', 'xploit_game_ui.pdb', 'v8*.dll', 'zlib*.dll', 'third_party_*.dll', 'icudt*.dat', '*_blob.bin')) {
+    foreach ($pattern in @('xploit_game_ui.dll', 'xploit_game_ui.pdb', 'v8*.dll', 'icu*.dll', 'icudt*.dat', 'third_party_*.dll', 'zlib*.dll', '*_blob.bin')) {
         Get-ChildItem -Path $bin -Filter $pattern -ErrorAction SilentlyContinue | Copy-Item -Destination $dest -Force
     }
     Write-Host "Plugin binaries copied to $dest"

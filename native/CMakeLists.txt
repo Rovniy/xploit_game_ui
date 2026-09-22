@@ -19,6 +19,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+file(MAKE_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 option(XGU_BUILD_TESTS "Build unit and golden tests" ON)
 option(XGU_BUILD_TOOLS "Build xgu_cli and xgu_host" ON)
@@ -27,9 +28,10 @@ option(XGU_BUILD_UNITY_PLUGIN "Build the Unity plugin DLL (xploit_game_ui.dll)" 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # ---------------------------------------------------------------------------
-# Dependencies (vcpkg manifest: native/vcpkg.json)
+# Dependencies (vcpkg manifest: native/vcpkg.json; V8 via NuGet)
 # ---------------------------------------------------------------------------
 find_package(unofficial-skia CONFIG REQUIRED)
+include(FetchV8Nuget) # -> xgu_v8, XGU_V8_RUNTIME_FILES, xgu_add_v8_runtime_copy()
 
 # ---------------------------------------------------------------------------
 # Common compile settings
@@ -45,6 +47,7 @@ target_compile_definitions(xgu_settings INTERFACE
 if(MSVC)
     target_compile_options(xgu_settings INTERFACE
         /W4 /permissive- /utf-8 /Zc:__cplusplus /Zc:preprocessor /EHsc /bigobj
+        /external:W0 # silence warnings from SYSTEM includes (V8, Skia)
         /wd4100 # unreferenced formal parameter
         /wd4201 # nameless struct/union (D3D12 headers)
     )
@@ -67,13 +70,13 @@ target_compile_definitions(xgu_skia INTERFACE SK_GANESH SK_DIRECT3D)
 target_link_libraries(xgu_skia INTERFACE d3d12 dxgi dxguid)
 
 # ---------------------------------------------------------------------------
-# Core: interfaces, view registry, logging, runtime singleton
+# Core: interfaces, view registry, logging, runtime thread
 # ---------------------------------------------------------------------------
 add_library(xgu_core STATIC
     src/core/Log.cpp
     src/core/View.cpp
     src/core/ViewRegistry.cpp
-    src/core/Runtime.cpp)
+    src/core/RuntimeThread.cpp)
 target_link_libraries(xgu_core PUBLIC xgu_settings xgu_skia)
 
 # ---------------------------------------------------------------------------
@@ -87,12 +90,26 @@ add_library(xgu_render STATIC
     src/render/skia/TestFrame.cpp)
 target_link_libraries(xgu_render PUBLIC xgu_core xgu_skia)
 
-# Aggregate runtime (grows with each stage: html, dom, css, layout, js, bridge, input)
-add_library(xgu_runtime INTERFACE)
-target_link_libraries(xgu_runtime INTERFACE xgu_core xgu_render)
+# ---------------------------------------------------------------------------
+# JavaScript: V8 platform + per-view runtime
+# ---------------------------------------------------------------------------
+add_library(xgu_js STATIC
+    src/js/v8/V8Platform.cpp
+    src/js/v8/V8Runtime.cpp)
+target_link_libraries(xgu_js PUBLIC xgu_core xgu_v8)
+
+# ---------------------------------------------------------------------------
+# Runtime aggregate (process singleton wiring core + render + js)
+# ---------------------------------------------------------------------------
+add_library(xgu_runtime STATIC
+    src/core/Runtime.cpp)
+target_link_libraries(xgu_runtime PUBLIC xgu_core xgu_render xgu_js)
 
 # The C ABI implementation is compiled into every host (DLL, tools, tests).
 set(XGU_CAPI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/capi/CApi.cpp)
+
+# V8 runtime files (DLLs, icudtl.dat) next to every binary in bin/.
+xgu_add_v8_runtime_copy(xgu_v8_runtime "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
 # ---------------------------------------------------------------------------
 # Unity plugin DLL
@@ -104,6 +121,7 @@ if(XGU_BUILD_UNITY_PLUGIN)
     target_compile_definitions(xploit_game_ui PRIVATE XGU_BUILDING_DLL)
     target_include_directories(xploit_game_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/unity)
     target_link_libraries(xploit_game_ui PRIVATE xgu_runtime)
+    add_dependencies(xploit_game_ui xgu_v8_runtime)
     set_target_properties(xploit_game_ui PROPERTIES
         OUTPUT_NAME xploit_game_ui
         PREFIX "")
@@ -118,12 +136,14 @@ if(XGU_BUILD_TOOLS)
         tools/xgu_cli/main.cpp)
     target_compile_definitions(xgu_cli PRIVATE XGU_STATIC)
     target_link_libraries(xgu_cli PRIVATE xgu_runtime)
+    add_dependencies(xgu_cli xgu_v8_runtime)
 
     add_executable(xgu_host WIN32
         ${XGU_CAPI_SOURCES}
         src/platform/standalone/main.cpp)
     target_compile_definitions(xgu_host PRIVATE XGU_STATIC)
     target_link_libraries(xgu_host PRIVATE xgu_runtime)
+    add_dependencies(xgu_host xgu_v8_runtime)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -136,11 +156,13 @@ if(XGU_BUILD_TESTS)
         ${XGU_CAPI_SOURCES}
         tests/unit/CApiTest.cpp
         tests/unit/ViewRegistryTest.cpp
-        tests/unit/TestFrameTest.cpp)
+        tests/unit/TestFrameTest.cpp
+        tests/unit/V8RuntimeTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")
     target_link_libraries(xgu_tests PRIVATE xgu_runtime GTest::gtest GTest::gtest_main)
+    add_dependencies(xgu_tests xgu_v8_runtime)
     include(GoogleTest)
     gtest_discover_tests(xgu_tests)
 endif()

@@ -54,6 +54,24 @@ namespace Xploit.GameUI
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LogFn(IntPtr user, int level, IntPtr message);
 
+        [Flags]
+        public enum InitFlags : uint
+        {
+            None = 0,
+            SingleThreaded = 1 << 0,
+        }
+
+        public enum ViewState
+        {
+            Created = 0,
+            Loading = 1,
+            DomReady = 2,
+            JsReady = 3,
+            Interactive = 4,
+            Paused = 5,
+            Destroyed = 6,
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         public struct InitDesc
         {
@@ -61,6 +79,7 @@ namespace Xploit.GameUI
             public IntPtr log_fn;
             public IntPtr log_user;
             public IntPtr data_dir;
+            public InitFlags flags;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -102,6 +121,9 @@ namespace Xploit.GameUI
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xgu_set_log_callback(IntPtr fn, IntPtr user);
 
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xgu_tick(double timeSeconds);
+
         // ---- rendering -----------------------------------------------------
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -141,6 +163,19 @@ namespace Xploit.GameUI
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xgu_view_release_pixels(ulong view);
+
+        // ---- JavaScript -----------------------------------------------------
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_execute_js(ulong view,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string origin);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_set_paused(ulong view, [MarshalAs(UnmanagedType.I1)] bool paused);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ViewState xgu_view_get_state(ulong view);
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xgu_views_destroy_all();

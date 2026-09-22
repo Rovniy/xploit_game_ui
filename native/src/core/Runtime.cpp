@@ -1,10 +1,17 @@
 #include "core/Runtime.h"
 
+#include "js/v8/V8Platform.h"
+#include "js/v8/V8Runtime.h"
 #include "render/skia/TestFrame.h"
+
+#include <vector>
 
 namespace xgu {
 
-Runtime::Runtime() : render_(std::make_unique<render::RenderSystem>(views_)) {}
+Runtime::Runtime() : render_(std::make_unique<render::RenderSystem>(views_)) {
+    thread_.setTickHandler([this](double time) { onTick(time); });
+    View::setJavaScriptRuntimeFactory(&js::V8Runtime::create);
+}
 
 Runtime::~Runtime() = default;
 
@@ -22,8 +29,13 @@ bool Runtime::initialize(const RuntimeInitDesc& desc) {
     }
     desc_ = desc;
     render::registerImageCodecs();
+    thread_.start(desc.singleThreaded);
+    // Initialise V8 eagerly on the runtime thread so failures show up at start-up.
+    const std::string dataDir = desc.dataDir;
+    thread_.post([dataDir] { js::V8Platform::instance().ensureInitialized(dataDir); });
     initialized_ = true;
-    XGU_LOG_INFO("xploit_game_ui %s initialized", XGU_VERSION_STRING);
+    XGU_LOG_INFO("xploit_game_ui %s initialized (%s)", XGU_VERSION_STRING,
+                 desc.singleThreaded ? "single-threaded" : "runtime thread");
     return true;
 }
 
@@ -32,6 +44,7 @@ void Runtime::shutdown() {
         return;
     }
     destroyAllViews();
+    thread_.stop(); // drains the posted view disposals
     initialized_ = false;
     XGU_LOG_INFO("xploit_game_ui shut down");
 }
@@ -45,18 +58,70 @@ ViewId Runtime::createView(ViewDesc desc) {
     return id;
 }
 
+void Runtime::disposeView(std::unique_ptr<View> view) {
+    if (!view) {
+        return;
+    }
+    view->setState(ViewState::Destroyed);
+    view->disposeJavaScript();
+    render_->destroyView(std::move(view));
+}
+
 bool Runtime::destroyView(ViewId id) {
     std::unique_ptr<View> view = views_.remove(id);
     if (!view) {
         return false;
     }
-    render_->destroyView(std::move(view));
+    // The JS isolate lives on the runtime thread; dispose it there. The view is
+    // already unreachable from the registry, so no new work can target it.
+    View* raw = view.release();
+    thread_.post([this, raw] { disposeView(std::unique_ptr<View>(raw)); });
     return true;
 }
 
 void Runtime::destroyAllViews() {
     for (auto& view : views_.removeAll()) {
-        render_->destroyView(std::move(view));
+        View* raw = view.release();
+        thread_.post([this, raw] { disposeView(std::unique_ptr<View>(raw)); });
+    }
+}
+
+bool Runtime::executeJavaScript(ViewId id, std::string source, std::string origin) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id, source = std::move(source), origin = std::move(origin)] {
+        // Resolved without holding the registry lock during evaluation: views are
+        // only deleted by tasks on this same thread, so the pointer stays valid.
+        View* view = views_.resolve(id);
+        if (!view) {
+            return;
+        }
+        if (IJavaScriptRuntime* js = view->ensureJavaScript()) {
+            js->evaluate(source, origin);
+        }
+    });
+    return true;
+}
+
+void Runtime::tick(double timeSeconds) {
+    if (!initialized_) {
+        return;
+    }
+    thread_.requestTick(timeSeconds);
+}
+
+void Runtime::onTick(double timeSeconds) {
+    std::vector<ViewId> ids;
+    views_.forEach([&ids](ViewId id, View&) { ids.push_back(id); });
+    for (ViewId id : ids) {
+        View* view = views_.resolve(id);
+        if (!view || view->paused()) {
+            continue;
+        }
+        if (IJavaScriptRuntime* js = view->javaScript()) {
+            js->tick(timeSeconds);
+        }
     }
 }
 

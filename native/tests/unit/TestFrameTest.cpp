@@ -26,6 +26,7 @@ protected:
     void SetUp() override {
         xgu_init_desc init{};
         init.struct_size = sizeof(init);
+        init.flags = XGU_INIT_SINGLE_THREADED;
         ASSERT_EQ(xgu_initialize(&init), XGU_OK);
         xgu::Runtime::instance().render().setNoDevice();
     }

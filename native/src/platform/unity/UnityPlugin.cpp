@@ -171,6 +171,7 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload() {
     if (g_graphics) {
         g_graphics->UnregisterDeviceEventCallback(onGraphicsDeviceEvent);
     }
+    xgu::Runtime::instance().shutdown(); // destroys views, joins the runtime thread
     xgu::Runtime::instance().render().shutdownDevice(true);
     XGU_LOG_INFO("xploit_game_ui plugin unloaded");
     xgu::Log::setCallback(nullptr, nullptr);
