@@ -987,7 +987,44 @@ void addWarning(std::vector<std::string>* warnings, std::string message) {
 }
 
 // Splits "name: value; name2: value2" into declarations.
-void parseDeclarationList(std::string_view text, DeclarationBlock& out, std::vector<std::string>* warnings) {
+// Removes /* ... */ but leaves anything inside a string alone. The declarations
+// are split textually on ';' and ':', so a comment has to go before that.
+std::string stripComments(std::string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    char quote = 0;
+    for (size_t i = 0; i < text.size();) {
+        const char c = text[i];
+        if (quote != 0) {
+            if (c == quote) {
+                quote = 0;
+            }
+            result.push_back(c);
+            ++i;
+            continue;
+        }
+        if (c == '"' || c == 0x27) {
+            quote = c;
+            result.push_back(c);
+            ++i;
+            continue;
+        }
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+            const size_t end = text.find("*/", i + 2);
+            i = end == std::string_view::npos ? text.size() : end + 2;
+            // A comment separates tokens, so it leaves a space behind.
+            result.push_back(' ');
+            continue;
+        }
+        result.push_back(c);
+        ++i;
+    }
+    return result;
+}
+
+void parseDeclarationList(std::string_view rawText, DeclarationBlock& out, std::vector<std::string>* warnings) {
+    const std::string cleaned = stripComments(rawText);
+    const std::string_view text = cleaned;
     size_t position = 0;
     while (position < text.size()) {
         // A declaration ends at ';' that is not inside a string or parentheses.

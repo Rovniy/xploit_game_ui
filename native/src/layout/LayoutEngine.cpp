@@ -308,7 +308,9 @@ void LayoutEngine::buildChildren(dom::Element& element, LayoutBox& box) {
         return;
     }
 
-    if (hasOnlyInlineContent(element)) {
+    // A flex container never makes an inline formatting context: its children
+    // are flex items, blockified, whatever their own display says.
+    if (!style->isFlexContainer() && hasOnlyInlineContent(element)) {
         // One anonymous box carrying the whole inline formatting context.
         auto inlineBox = std::make_unique<LayoutBox>(BoxKind::InlineContext, nullptr, style);
         YGNodeSetNodeType(inlineBox->yogaNode(), YGNodeTypeText);

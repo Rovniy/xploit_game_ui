@@ -9,11 +9,20 @@
   <div id="menu" class="panel">
     <h1 class="title">xploit_game_ui</h1>
     <p class="subtitle">HTML/CSS/JS game UI for Unity</p>
+
     <div class="health">
       <span class="label">Health</span>
       <div class="bar"><div id="health-fill" class="fill"></div></div>
       <span id="health-value" class="value">100</span>
     </div>
+
+    <div class="field">
+      <span class="label">Name</span>
+      <input id="player-name" type="text" value="Player" placeholder="your name">
+    </div>
+
+    <div id="log" class="log"></div>
+
     <button id="play" class="primary">PLAY</button>
   </div>
   <script src="./app.js"></script>

@@ -243,6 +243,27 @@ TEST_F(PipelineTest, AtomicInlinesKeepDocumentOrderInTheText) {
     EXPECT_FLOAT_EQ(button.width, 40.0f);
 }
 
+TEST_F(PipelineTest, AFlexRowOfInlineChildrenStaysARow) {
+    // Regression: a flex container whose children were all inline-level was
+    // turned into one inline formatting context, so the row became a line of
+    // text and the flex rules were ignored.
+    write("UI/index.html", R"(<html><head><style>
+      html, body { margin: 0; font-size: 16px }
+      .row { display: flex; align-items: center; width: 300px }
+      .label { width: 60px }
+      input { flex: 1; padding: 0; border: 0 }
+    </style></head><body>
+      <div class="row"><span class="label">Name</span><input id="field" value="x"></div>
+    </body></html>)");
+
+    const xgu_view_id view = createView();
+    ASSERT_EQ(xgu_view_load(view, "UI/index.html"), XGU_OK);
+
+    const layout::Rect field = frameOf(view, "field");
+    EXPECT_FLOAT_EQ(field.x, 60.0f) << "the input starts right after the label";
+    EXPECT_FLOAT_EQ(field.width, 240.0f) << "and flex: 1 gives it the rest of the row";
+}
+
 TEST_F(PipelineTest, TextBeforeAnAtomicInlineStaysBeforeIt) {
     write("UI/index.html", R"(<html><head><style>
       html, body { margin: 0; font-size: 16px }
