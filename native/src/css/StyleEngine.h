@@ -69,9 +69,7 @@ public:
     const std::vector<std::string>& warnings() const { return warnings_; }
     size_t ruleCount() const { return index_.ruleCount(); }
 
-    // Element state used by :hover/:active/:focus. Owned by the input router
-    // from Stage 6; setting it invalidates only what can change.
-    void setStateProvider(const ElementStateProvider* provider) { stateProvider_ = provider; }
+
 
     // dom::MutationSink
     void onNodeInserted(dom::Node& node) override;
@@ -89,7 +87,6 @@ private:
     std::vector<StyleSheet> authorSheets_;
     RuleIndex index_;
     SelectorMatcher matcher_;
-    const ElementStateProvider* stateProvider_ = nullptr;
     std::vector<std::string> warnings_;
     LengthContext lengthContext_;
     bool indexDirty_ = true;

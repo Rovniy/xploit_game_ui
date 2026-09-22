@@ -1,5 +1,6 @@
 #include "core/Runtime.h"
 
+#include "dom/Document.h"
 #include "js/v8/V8Platform.h"
 #include "js/v8/V8Runtime.h"
 #include "render/skia/TestFrame.h"
@@ -160,6 +161,44 @@ bool Runtime::repaintView(ViewId id) {
                 // provider rasterises right here.
                 render_->paintIfCpu(*view);
             }
+        }
+    });
+    return true;
+}
+
+bool Runtime::sendInput(ViewId id, input::InputEvent event) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id, event = std::move(event)] {
+        View* view = views_.resolve(id);
+        if (!view || !view->sendInput(event)) {
+            return;
+        }
+        // Hover, focus and the page's own listeners can all change what is on
+        // screen, so paint right away instead of waiting for the next tick.
+        if (view->updateAndPaint()) {
+            render_->paintIfCpu(*view);
+        }
+    });
+    return true;
+}
+
+bool Runtime::setFocus(ViewId id, std::string elementId) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id, elementId = std::move(elementId)] {
+        View* view = views_.resolve(id);
+        if (!view || !view->inputRouter() || !view->documentOrNull()) {
+            return;
+        }
+        dom::Element* element = elementId.empty() ? nullptr : view->documentOrNull()->getElementById(elementId);
+        if (!view->inputRouter()->setFocus(element)) {
+            return;
+        }
+        if (view->updateAndPaint()) {
+            render_->paintIfCpu(*view);
         }
     });
     return true;

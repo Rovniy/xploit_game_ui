@@ -91,6 +91,9 @@ add_library(xgu_dom STATIC
     src/dom/Node.cpp
     src/dom/Element.cpp
     src/dom/Document.cpp
+    src/dom/Event.cpp
+    src/dom/EventTarget.cpp
+    src/dom/TextControl.cpp
     src/dom/Serializer.cpp
     src/html/HtmlTags.cpp
     src/html/LexborHtmlParser.cpp
@@ -114,8 +117,11 @@ add_library(xgu_layout STATIC
     src/text/InlineContent.cpp
     src/layout/LayoutBox.cpp
     src/layout/LayoutEngine.cpp
+    src/paint/BoxGeometry.cpp
     src/paint/ImageCache.cpp
-    src/paint/Painter.cpp)
+    src/paint/Painter.cpp
+    src/input/HitTester.cpp
+    src/input/InputRouter.cpp)
 # LayoutBox.h exposes YGNodeRef, so Yoga is part of the public interface.
 target_link_libraries(xgu_layout PUBLIC xgu_dom xgu_skia yoga::yogacore)
 
@@ -211,7 +217,9 @@ if(XGU_BUILD_TESTS)
         tests/unit/LayoutTest.cpp
         tests/unit/StyleLayoutPipelineTest.cpp
         tests/unit/PaintTest.cpp
-        tests/unit/GoldenImageTest.cpp)
+        tests/unit/GoldenImageTest.cpp
+        tests/unit/InputTest.cpp
+        tests/unit/TextControlTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

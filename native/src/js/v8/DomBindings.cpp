@@ -6,6 +6,10 @@
 #include "css/StyleSheet.h"
 #include "dom/Document.h"
 #include "dom/Element.h"
+#include "dom/Event.h"
+#include "dom/EventTarget.h"
+#include "dom/FocusController.h"
+#include "dom/TextControl.h"
 #include "dom/Node.h"
 #include "js/v8/V8Runtime.h"
 
@@ -17,7 +21,25 @@ namespace xgu::js {
 namespace {
 
 constexpr int kNodePointerField = 0;
-constexpr int kInternalFieldCount = 1;
+constexpr int kTypeTagField = 1;
+constexpr int kInternalFieldCount = 2;
+
+// Stored with SetAlignedPointerInInternalField, so the values must be even.
+// Without the tag an Event wrapper would unwrap as a Node.
+constexpr uintptr_t kTagNode = 2;
+constexpr uintptr_t kTagElementView = 4; // DOMTokenList, CSSStyleDeclaration
+constexpr uintptr_t kTagEvent = 6;
+
+uintptr_t typeTagOf(v8::Local<v8::Value> value) {
+    if (value.IsEmpty() || !value->IsObject()) {
+        return 0;
+    }
+    v8::Local<v8::Object> object = value.As<v8::Object>();
+    if (object->InternalFieldCount() < kInternalFieldCount) {
+        return 0;
+    }
+    return reinterpret_cast<uintptr_t>(object->GetAlignedPointerFromInternalField(kTypeTagField));
+}
 
 // Keeps a node alive for as long as its JavaScript wrapper exists.
 struct WrapperData {
@@ -44,6 +66,30 @@ void firstPassWeakCallback(const v8::WeakCallbackInfo<WrapperData>& info) {
     info.SetSecondPassCallback(secondPassWeakCallback);
 }
 
+// Keeps an event alive for as long as its JavaScript wrapper exists. Same
+// scheme as WrapperData, but events are not part of the tree.
+struct EventWrapperData {
+    RefPtr<dom::Event> event;
+    v8::Global<v8::Object> handle; // weak
+};
+
+void destroyEventWrapperData(void* pointer) { delete static_cast<EventWrapperData*>(pointer); }
+
+void eventSecondPassWeakCallback(const v8::WeakCallbackInfo<EventWrapperData>& info) {
+    EventWrapperData* data = info.GetParameter();
+    dom::Event* event = data->event.get();
+    if (!event) {
+        delete data;
+        return;
+    }
+    event->wrapperSlot().clear(); // deletes `data`, then may destroy the event
+}
+
+void eventFirstPassWeakCallback(const v8::WeakCallbackInfo<EventWrapperData>& info) {
+    info.GetParameter()->handle.Reset();
+    info.SetSecondPassCallback(eventSecondPassWeakCallback);
+}
+
 std::string toUtf8(v8::Isolate* isolate, v8::Local<v8::Value> value) {
     if (value.IsEmpty()) {
         return {};
@@ -57,6 +103,12 @@ v8::Local<v8::String> toV8(v8::Isolate* isolate, std::string_view text) {
         .FromMaybe(v8::String::Empty(isolate));
 }
 
+// A matcher that knows about :hover/:active/:focus, so selectors behave the same
+// from script as they do in the cascade.
+css::SelectorMatcher matcherFor(dom::Document* document) {
+    return css::SelectorMatcher(document ? document->elementStateProvider() : nullptr);
+}
+
 DomBindings* bindingsOf(v8::Isolate* isolate) {
     V8Runtime* runtime = V8Runtime::fromIsolate(isolate);
     return runtime ? runtime->domBindings() : nullptr;
@@ -65,6 +117,35 @@ DomBindings* bindingsOf(v8::Isolate* isolate) {
 void throwTypeError(v8::Isolate* isolate, const char* message) {
     isolate->ThrowException(v8::Exception::TypeError(toV8(isolate, message)));
 }
+
+// A listener holding a script function. Two registrations are the same when
+// they hold the same function object, which is what removeEventListener needs.
+class JsEventListener final : public dom::EventListener {
+public:
+    JsEventListener(v8::Isolate* isolate, v8::Local<v8::Function> function)
+        : isolate_(isolate), function_(isolate, function) {}
+
+    void handleEvent(dom::Event& event) override;
+
+    bool isSameAs(const dom::EventListener& other) const override {
+        if (other.typeTag() != tag()) {
+            return false;
+        }
+        const auto& js = static_cast<const JsEventListener&>(other);
+        return !function_.IsEmpty() && !js.function_.IsEmpty() && function_ == js.function_;
+    }
+
+    const void* typeTag() const override { return tag(); }
+
+    static const void* tag() {
+        static const char kTag = 0;
+        return &kTag;
+    }
+
+private:
+    v8::Isolate* isolate_;
+    v8::Global<v8::Function> function_;
+};
 
 // --- accessors on the receiver ----------------------------------------------
 
@@ -96,8 +177,7 @@ dom::Element* receiverElement(const v8::PropertyCallbackInfo<v8::Value>& info) {
 
 // The element a DOMTokenList (classList) was created for.
 dom::Element* tokenListElement(const v8::FunctionCallbackInfo<v8::Value>& info) {
-    dom::Node* node = DomBindings::unwrap(info.This());
-    return node && node->isElement() ? static_cast<dom::Element*>(node) : nullptr;
+    return DomBindings::unwrapView(info.This());
 }
 
 // --- shared helpers ----------------------------------------------------------
@@ -410,7 +490,7 @@ void matchesCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
     if (!element || !parseSelectorArgument(info, list)) {
         return;
     }
-    info.GetReturnValue().Set(css::SelectorMatcher().matches(*element, list));
+    info.GetReturnValue().Set(matcherFor(element->document()).matches(*element, list));
 }
 
 void querySelectorCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -419,7 +499,7 @@ void querySelectorCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
     if (!node || !parseSelectorArgument(info, list)) {
         return;
     }
-    info.GetReturnValue().Set(wrapNode(info.GetIsolate(), css::SelectorMatcher().queryFirst(*node, list)));
+    info.GetReturnValue().Set(wrapNode(info.GetIsolate(), matcherFor(node->document()).queryFirst(*node, list)));
 }
 
 void querySelectorAllCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -428,7 +508,7 @@ void querySelectorAllCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
     if (!node || !parseSelectorArgument(info, list)) {
         return;
     }
-    info.GetReturnValue().Set(wrapNodeList(info.GetIsolate(), css::SelectorMatcher().queryAll(*node, list)));
+    info.GetReturnValue().Set(wrapNodeList(info.GetIsolate(), matcherFor(node->document()).queryAll(*node, list)));
 }
 
 void getElementsByTagNameCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -516,9 +596,8 @@ void tokenListContainsCallback(const v8::FunctionCallbackInfo<v8::Value>& info) 
 }
 
 void tokenListLengthGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
-    dom::Node* node = DomBindings::unwrap(info.This());
-    if (node && node->isElement()) {
-        info.GetReturnValue().Set(static_cast<uint32_t>(static_cast<dom::Element*>(node)->classList().size()));
+    if (dom::Element* element = DomBindings::unwrapView(info.This())) {
+        info.GetReturnValue().Set(static_cast<uint32_t>(element->classList().size()));
     }
 }
 
@@ -537,9 +616,8 @@ void tokenListItemCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
 }
 
 void tokenListValueGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
-    dom::Node* node = DomBindings::unwrap(info.This());
-    if (node && node->isElement()) {
-        info.GetReturnValue().Set(toV8(info.GetIsolate(), static_cast<dom::Element*>(node)->className()));
+    if (dom::Element* element = DomBindings::unwrapView(info.This())) {
+        info.GetReturnValue().Set(toV8(info.GetIsolate(), element->className()));
     }
 }
 
@@ -562,7 +640,7 @@ std::string toCssPropertyName(std::string_view name) {
 }
 
 dom::Element* styleOwner(v8::Local<v8::Object> holder) {
-    dom::Node* node = DomBindings::unwrap(holder);
+    dom::Node* node = DomBindings::unwrapView(holder);
     return node && node->isElement() ? static_cast<dom::Element*>(node) : nullptr;
 }
 
@@ -709,6 +787,283 @@ void styleGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>&
     info.GetReturnValue().Set(bindings->wrapStyleDeclaration(info.GetIsolate()->GetCurrentContext(), *element));
 }
 
+// --- EventTarget ------------------------------------------------------------------
+
+// addEventListener(type, handler, options). `options` may be a boolean (the
+// capture flag) or an object with `capture` and `once`.
+void readListenerOptions(v8::Local<v8::Context> context, v8::Local<v8::Value> options, bool& capture, bool& once) {
+    v8::Isolate* isolate = context->GetIsolate();
+    if (options.IsEmpty() || options->IsUndefined() || options->IsNull()) {
+        return;
+    }
+    if (options->IsBoolean()) {
+        capture = options->BooleanValue(isolate);
+        return;
+    }
+    if (!options->IsObject()) {
+        return;
+    }
+    v8::Local<v8::Object> object = options.As<v8::Object>();
+    v8::Local<v8::Value> value;
+    if (object->Get(context, toV8(isolate, "capture")).ToLocal(&value) && !value->IsUndefined()) {
+        capture = value->BooleanValue(isolate);
+    }
+    if (object->Get(context, toV8(isolate, "once")).ToLocal(&value) && !value->IsUndefined()) {
+        once = value->BooleanValue(isolate);
+    }
+}
+
+// The node an EventTarget method was called on. `window` forwards to the
+// document, so a receiver that is not a wrapper resolves to it.
+dom::Node* eventTargetReceiver(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    if (dom::Node* node = DomBindings::unwrap(info.This())) {
+        return node;
+    }
+    DomBindings* bindings = bindingsOf(info.GetIsolate());
+    return bindings ? static_cast<dom::Node*>(bindings->document()) : nullptr;
+}
+
+void addEventListenerCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    dom::Node* node = eventTargetReceiver(info);
+    if (!node || info.Length() < 2) {
+        return;
+    }
+    if (!info[1]->IsFunction()) {
+        return; // objects with handleEvent are not supported
+    }
+    bool capture = false;
+    bool once = false;
+    readListenerOptions(isolate->GetCurrentContext(), info.Length() > 2 ? info[2] : v8::Local<v8::Value>(), capture,
+                        once);
+    const Atom type(toUtf8(isolate, info[0]));
+    node->addEventListener(type, makeRef<JsEventListener>(isolate, info[1].As<v8::Function>()), capture, once);
+}
+
+void removeEventListenerCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    dom::Node* node = eventTargetReceiver(info);
+    if (!node || info.Length() < 2 || !info[1]->IsFunction()) {
+        return;
+    }
+    bool capture = false;
+    bool once = false;
+    readListenerOptions(isolate->GetCurrentContext(), info.Length() > 2 ? info[2] : v8::Local<v8::Value>(), capture,
+                        once);
+    const Atom type(toUtf8(isolate, info[0]));
+    JsEventListener probe(isolate, info[1].As<v8::Function>());
+    node->removeEventListener(type, probe, capture);
+}
+
+void dispatchEventCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Node* node = eventTargetReceiver(info);
+    dom::Event* event = info.Length() > 0 ? DomBindings::unwrapEvent(info[0]) : nullptr;
+    if (!node || !event) {
+        throwTypeError(info.GetIsolate(), "dispatchEvent expects an Event");
+        return;
+    }
+    info.GetReturnValue().Set(dom::dispatchEvent(*node, *event));
+}
+
+// --- Event ------------------------------------------------------------------------
+
+dom::Event* receiverEvent(const v8::PropertyCallbackInfo<v8::Value>& info) {
+    return DomBindings::unwrapEvent(info.This());
+}
+
+dom::Event* receiverEvent(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Event* event = DomBindings::unwrapEvent(info.This());
+    if (!event) {
+        throwTypeError(info.GetIsolate(), "not an Event");
+    }
+    return event;
+}
+
+#define XGU_EVENT_GETTER(name, expression)                                                                           \
+    void name(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {                                \
+        dom::Event* event = receiverEvent(info);                                                                     \
+        if (!event) {                                                                                                \
+            return;                                                                                                  \
+        }                                                                                                            \
+        info.GetReturnValue().Set(expression);                                                                        \
+    }
+
+XGU_EVENT_GETTER(eventTypeGetter, toV8(info.GetIsolate(), event->type().view()))
+XGU_EVENT_GETTER(eventBubblesGetter, event->bubbles())
+XGU_EVENT_GETTER(eventCancelableGetter, event->cancelable())
+XGU_EVENT_GETTER(eventPhaseGetter, static_cast<int32_t>(event->phase()))
+XGU_EVENT_GETTER(eventDefaultPreventedGetter, event->defaultPrevented())
+XGU_EVENT_GETTER(eventTimeStampGetter, event->timeStamp() * 1000.0)
+XGU_EVENT_GETTER(eventTargetGetter, wrapNode(info.GetIsolate(), event->target()))
+XGU_EVENT_GETTER(eventCurrentTargetGetter, wrapNode(info.GetIsolate(), event->currentTarget()))
+XGU_EVENT_GETTER(eventRelatedTargetGetter, wrapNode(info.GetIsolate(), event->relatedTarget()))
+XGU_EVENT_GETTER(eventClientXGetter, event->clientX)
+XGU_EVENT_GETTER(eventClientYGetter, event->clientY)
+XGU_EVENT_GETTER(eventMovementXGetter, event->movementX)
+XGU_EVENT_GETTER(eventMovementYGetter, event->movementY)
+XGU_EVENT_GETTER(eventButtonGetter, event->button)
+XGU_EVENT_GETTER(eventButtonsGetter, event->buttons)
+XGU_EVENT_GETTER(eventDetailGetter, event->detail)
+XGU_EVENT_GETTER(eventDeltaXGetter, event->deltaX)
+XGU_EVENT_GETTER(eventDeltaYGetter, event->deltaY)
+XGU_EVENT_GETTER(eventKeyGetter, toV8(info.GetIsolate(), event->key))
+XGU_EVENT_GETTER(eventCodeGetter, toV8(info.GetIsolate(), event->code))
+XGU_EVENT_GETTER(eventRepeatGetter, event->repeat)
+XGU_EVENT_GETTER(eventDataGetter, toV8(info.GetIsolate(), event->data))
+XGU_EVENT_GETTER(eventInputTypeGetter, toV8(info.GetIsolate(), event->inputType))
+XGU_EVENT_GETTER(eventAltKeyGetter, event->modifiers.alt)
+XGU_EVENT_GETTER(eventCtrlKeyGetter, event->modifiers.ctrl)
+XGU_EVENT_GETTER(eventShiftKeyGetter, event->modifiers.shift)
+XGU_EVENT_GETTER(eventMetaKeyGetter, event->modifiers.meta)
+
+#undef XGU_EVENT_GETTER
+
+// deltaMode is always 0 (pixels): the host converts wheel notches for us.
+void eventDeltaModeGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    info.GetReturnValue().Set(0);
+}
+
+void eventPreventDefaultCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    if (dom::Event* event = receiverEvent(info)) {
+        event->preventDefault();
+    }
+}
+
+void eventStopPropagationCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    if (dom::Event* event = receiverEvent(info)) {
+        event->stopPropagation();
+    }
+}
+
+void eventStopImmediatePropagationCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    if (dom::Event* event = receiverEvent(info)) {
+        event->stopImmediatePropagation();
+    }
+}
+
+// new Event(type, { bubbles, cancelable })
+void eventConstructorCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    if (!info.IsConstructCall()) {
+        throwTypeError(isolate, "Event requires 'new'");
+        return;
+    }
+    DomBindings* bindings = bindingsOf(isolate);
+    if (!bindings || info.Length() < 1) {
+        throwTypeError(isolate, "Event requires a type");
+        return;
+    }
+    bool bubbles = false;
+    bool cancelable = false;
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
+    if (info.Length() > 1 && info[1]->IsObject()) {
+        v8::Local<v8::Object> init = info[1].As<v8::Object>();
+        v8::Local<v8::Value> value;
+        if (init->Get(context, toV8(isolate, "bubbles")).ToLocal(&value)) {
+            bubbles = value->BooleanValue(isolate);
+        }
+        if (init->Get(context, toV8(isolate, "cancelable")).ToLocal(&value)) {
+            cancelable = value->BooleanValue(isolate);
+        }
+    }
+    RefPtr<dom::Event> event =
+        makeRef<dom::Event>(Atom(toUtf8(isolate, info[0])), dom::EventCategory::Plain, bubbles, cancelable);
+    info.GetReturnValue().Set(bindings->wrapEvent(context, event.get()));
+}
+
+// --- form controls ----------------------------------------------------------------
+
+// The editing state of the receiver, or null when it is not a text control.
+dom::TextControl* receiverControl(const v8::PropertyCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    return element && element->isTextControl() ? &element->ensureTextControl() : nullptr;
+}
+
+void valueGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    if (dom::TextControl* control = receiverControl(info)) {
+        info.GetReturnValue().Set(toV8(info.GetIsolate(), control->value()));
+    }
+}
+
+void valueSetter(v8::Local<v8::Name>, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<void>& info) {
+    dom::Node* node = DomBindings::unwrap(info.This());
+    if (!node || !node->isElement()) {
+        return;
+    }
+    auto* element = static_cast<dom::Element*>(node);
+    if (!element->isTextControl()) {
+        return;
+    }
+    if (element->ensureTextControl().setValue(toUtf8(info.GetIsolate(), value))) {
+        // The value drives layout, so the box tree is rebuilt from it.
+        element->markDirty(dom::kDirtyLayoutTree | dom::kDirtyLayout | dom::kDirtyPaintSelf);
+    }
+}
+
+void selectionStartGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    if (dom::TextControl* control = receiverControl(info)) {
+        info.GetReturnValue().Set(static_cast<uint32_t>(control->utf16ToUtf8Offset(control->selectionStart())));
+    }
+}
+
+void selectionEndGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    if (dom::TextControl* control = receiverControl(info)) {
+        info.GetReturnValue().Set(static_cast<uint32_t>(control->utf16ToUtf8Offset(control->selectionEnd())));
+    }
+}
+
+void setSelectionRangeCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    if (!element || !element->isTextControl() || info.Length() < 2) {
+        return;
+    }
+    v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
+    dom::TextControl& control = element->ensureTextControl();
+    const auto start = static_cast<size_t>(std::max<int64_t>(0, info[0]->IntegerValue(context).FromMaybe(0)));
+    const auto end = static_cast<size_t>(std::max<int64_t>(0, info[1]->IntegerValue(context).FromMaybe(0)));
+    control.setSelection(control.utf8ToUtf16Offset(start), control.utf8ToUtf16Offset(end));
+    element->markDirty(dom::kDirtyPaintSelf);
+}
+
+void selectCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    if (!element || !element->isTextControl()) {
+        return;
+    }
+    element->ensureTextControl().selectAll();
+    element->markDirty(dom::kDirtyPaintSelf);
+}
+
+void focusCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    if (!element || !element->document() || !element->document()->focusController()) {
+        return;
+    }
+    element->document()->focusController()->requestFocus(element);
+}
+
+void blurCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    dom::Element* element = receiverElement(info);
+    if (!element || !element->document() || !element->document()->focusController()) {
+        return;
+    }
+    dom::FocusController* controller = element->document()->focusController();
+    if (controller->focusedElement() == element) {
+        controller->requestFocus(nullptr);
+    }
+}
+
+void activeElementGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    dom::Node* node = DomBindings::unwrap(info.This());
+    if (!node || !node->isDocument()) {
+        return;
+    }
+    auto* document = static_cast<dom::Document*>(node);
+    dom::Element* focused = document->focusController() ? document->focusController()->focusedElement() : nullptr;
+    info.GetReturnValue().Set(wrapNode(info.GetIsolate(), focused ? static_cast<dom::Node*>(focused)
+                                                                  : static_cast<dom::Node*>(document->body())));
+}
+
 // --- Document --------------------------------------------------------------------
 
 void documentElementGetter(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
@@ -847,8 +1202,15 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
     };
 
     switch (interface) {
+    case Interface::EventTarget:
+        tmpl->SetClassName(toV8(isolate_, "EventTarget"));
+        method(proto, "addEventListener", addEventListenerCallback);
+        method(proto, "removeEventListener", removeEventListenerCallback);
+        method(proto, "dispatchEvent", dispatchEventCallback);
+        break;
     case Interface::Node:
         tmpl->SetClassName(toV8(isolate_, "Node"));
+        tmpl->Inherit(templateFor(Interface::EventTarget));
         accessor(instance, "nodeType", nodeTypeGetter);
         accessor(instance, "nodeName", nodeNameGetter);
         accessor(instance, "parentNode", parentNodeGetter);
@@ -885,6 +1247,14 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         method(proto, "hasAttribute", hasAttributeCallback);
         method(proto, "matches", matchesCallback);
         method(proto, "remove", removeCallback);
+        // Form controls: the accessors return undefined on other elements.
+        accessor(instance, "value", valueGetter, valueSetter);
+        accessor(instance, "selectionStart", selectionStartGetter);
+        accessor(instance, "selectionEnd", selectionEndGetter);
+        method(proto, "setSelectionRange", setSelectionRangeCallback);
+        method(proto, "select", selectCallback);
+        method(proto, "focus", focusCallback);
+        method(proto, "blur", blurCallback);
         break;
     case Interface::Text:
         tmpl->SetClassName(toV8(isolate_, "Text"));
@@ -898,6 +1268,75 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         accessor(instance, "data", dataGetter, dataSetter);
         accessor(instance, "nodeValue", dataGetter, dataSetter);
         break;
+    case Interface::Event:
+        tmpl->SetClassName(toV8(isolate_, "Event"));
+        tmpl->SetCallHandler(eventConstructorCallback);
+        accessor(instance, "type", eventTypeGetter);
+        accessor(instance, "bubbles", eventBubblesGetter);
+        accessor(instance, "cancelable", eventCancelableGetter);
+        accessor(instance, "eventPhase", eventPhaseGetter);
+        accessor(instance, "defaultPrevented", eventDefaultPreventedGetter);
+        accessor(instance, "timeStamp", eventTimeStampGetter);
+        accessor(instance, "target", eventTargetGetter);
+        accessor(instance, "srcElement", eventTargetGetter);
+        accessor(instance, "currentTarget", eventCurrentTargetGetter);
+        method(proto, "preventDefault", eventPreventDefaultCallback);
+        method(proto, "stopPropagation", eventStopPropagationCallback);
+        method(proto, "stopImmediatePropagation", eventStopImmediatePropagationCallback);
+        break;
+    case Interface::MouseEvent:
+        tmpl->SetClassName(toV8(isolate_, "MouseEvent"));
+        tmpl->Inherit(templateFor(Interface::Event));
+        accessor(instance, "clientX", eventClientXGetter);
+        accessor(instance, "clientY", eventClientYGetter);
+        // The view is the whole coordinate space here, so page and screen
+        // coordinates are the client ones.
+        accessor(instance, "pageX", eventClientXGetter);
+        accessor(instance, "pageY", eventClientYGetter);
+        accessor(instance, "screenX", eventClientXGetter);
+        accessor(instance, "screenY", eventClientYGetter);
+        accessor(instance, "offsetX", eventClientXGetter);
+        accessor(instance, "offsetY", eventClientYGetter);
+        accessor(instance, "movementX", eventMovementXGetter);
+        accessor(instance, "movementY", eventMovementYGetter);
+        accessor(instance, "button", eventButtonGetter);
+        accessor(instance, "buttons", eventButtonsGetter);
+        accessor(instance, "detail", eventDetailGetter);
+        accessor(instance, "relatedTarget", eventRelatedTargetGetter);
+        accessor(instance, "altKey", eventAltKeyGetter);
+        accessor(instance, "ctrlKey", eventCtrlKeyGetter);
+        accessor(instance, "shiftKey", eventShiftKeyGetter);
+        accessor(instance, "metaKey", eventMetaKeyGetter);
+        break;
+    case Interface::WheelEvent:
+        tmpl->SetClassName(toV8(isolate_, "WheelEvent"));
+        tmpl->Inherit(templateFor(Interface::MouseEvent));
+        accessor(instance, "deltaX", eventDeltaXGetter);
+        accessor(instance, "deltaY", eventDeltaYGetter);
+        accessor(instance, "deltaMode", eventDeltaModeGetter);
+        break;
+    case Interface::KeyboardEvent:
+        tmpl->SetClassName(toV8(isolate_, "KeyboardEvent"));
+        tmpl->Inherit(templateFor(Interface::Event));
+        accessor(instance, "key", eventKeyGetter);
+        accessor(instance, "code", eventCodeGetter);
+        accessor(instance, "repeat", eventRepeatGetter);
+        accessor(instance, "altKey", eventAltKeyGetter);
+        accessor(instance, "ctrlKey", eventCtrlKeyGetter);
+        accessor(instance, "shiftKey", eventShiftKeyGetter);
+        accessor(instance, "metaKey", eventMetaKeyGetter);
+        break;
+    case Interface::InputEvent:
+        tmpl->SetClassName(toV8(isolate_, "InputEvent"));
+        tmpl->Inherit(templateFor(Interface::Event));
+        accessor(instance, "data", eventDataGetter);
+        accessor(instance, "inputType", eventInputTypeGetter);
+        break;
+    case Interface::FocusEvent:
+        tmpl->SetClassName(toV8(isolate_, "FocusEvent"));
+        tmpl->Inherit(templateFor(Interface::Event));
+        accessor(instance, "relatedTarget", eventRelatedTargetGetter);
+        break;
     case Interface::Document:
         tmpl->SetClassName(toV8(isolate_, "Document"));
         tmpl->Inherit(templateFor(Interface::Node));
@@ -906,6 +1345,7 @@ v8::Local<v8::FunctionTemplate> DomBindings::makeTemplate(Interface interface) {
         accessor(instance, "body", documentBodyGetter);
         accessor(instance, "title", documentTitleGetter);
         accessor(instance, "URL", documentUrlGetter);
+        accessor(instance, "activeElement", activeElementGetter);
         method(proto, "getElementById", getElementByIdCallback);
         method(proto, "getElementsByClassName", getElementsByClassNameCallback);
         method(proto, "createElement", createElementCallback);
@@ -975,6 +1415,7 @@ v8::Local<v8::Value> DomBindings::wrap(v8::Local<v8::Context> context, dom::Node
         return scope.Escape(v8::Null(isolate_).As<v8::Value>());
     }
     wrapper->SetAlignedPointerInInternalField(kNodePointerField, node);
+    wrapper->SetAlignedPointerInInternalField(kTypeTagField, reinterpret_cast<void*>(kTagNode));
 
     auto* data = new WrapperData();
     data->node = node; // the wrapper keeps the node alive
@@ -996,6 +1437,7 @@ v8::Local<v8::Value> DomBindings::wrapTokenList(v8::Local<v8::Context> context, 
     // The list is a transient view over the element; the element outlives it
     // because JavaScript reached it through its own (ref-holding) wrapper.
     list->SetAlignedPointerInInternalField(kNodePointerField, &element);
+    list->SetAlignedPointerInInternalField(kTypeTagField, reinterpret_cast<void*>(kTagElementView));
     return scope.Escape(list.As<v8::Value>());
 }
 
@@ -1007,19 +1449,103 @@ v8::Local<v8::Value> DomBindings::wrapStyleDeclaration(v8::Local<v8::Context> co
     }
     // Like the token list, this is a transient view over the element.
     declaration->SetAlignedPointerInInternalField(kNodePointerField, &element);
+    declaration->SetAlignedPointerInInternalField(kTypeTagField, reinterpret_cast<void*>(kTagElementView));
     return scope.Escape(declaration.As<v8::Value>());
 }
 
 dom::Node* DomBindings::unwrap(v8::Local<v8::Value> value) {
-    if (value.IsEmpty() || !value->IsObject()) {
+    if (typeTagOf(value) != kTagNode) {
         return nullptr;
     }
-    v8::Local<v8::Object> object = value.As<v8::Object>();
-    if (object->InternalFieldCount() < kInternalFieldCount) {
-        return nullptr;
-    }
-    return static_cast<dom::Node*>(object->GetAlignedPointerFromInternalField(kNodePointerField));
+    return static_cast<dom::Node*>(value.As<v8::Object>()->GetAlignedPointerFromInternalField(kNodePointerField));
 }
+
+dom::Element* DomBindings::unwrapView(v8::Local<v8::Value> value) {
+    if (typeTagOf(value) != kTagElementView) {
+        return nullptr;
+    }
+    return static_cast<dom::Element*>(value.As<v8::Object>()->GetAlignedPointerFromInternalField(kNodePointerField));
+}
+
+dom::Event* DomBindings::unwrapEvent(v8::Local<v8::Value> value) {
+    if (typeTagOf(value) != kTagEvent) {
+        return nullptr;
+    }
+    return static_cast<dom::Event*>(value.As<v8::Object>()->GetAlignedPointerFromInternalField(kNodePointerField));
+}
+
+v8::Local<v8::Value> DomBindings::wrapEvent(v8::Local<v8::Context> context, dom::Event* event) {
+    v8::EscapableHandleScope scope(isolate_);
+    if (!event) {
+        return scope.Escape(v8::Null(isolate_).As<v8::Value>());
+    }
+    if (auto* existing = static_cast<EventWrapperData*>(event->wrapperSlot().data)) {
+        if (!existing->handle.IsEmpty()) {
+            return scope.Escape(existing->handle.Get(isolate_).As<v8::Value>());
+        }
+    }
+
+    Interface interface = Interface::Event;
+    switch (event->category()) {
+    case dom::EventCategory::Mouse:
+        interface = Interface::MouseEvent;
+        break;
+    case dom::EventCategory::Wheel:
+        interface = Interface::WheelEvent;
+        break;
+    case dom::EventCategory::Keyboard:
+        interface = Interface::KeyboardEvent;
+        break;
+    case dom::EventCategory::Input:
+        interface = Interface::InputEvent;
+        break;
+    case dom::EventCategory::Focus:
+        interface = Interface::FocusEvent;
+        break;
+    case dom::EventCategory::Plain:
+        break;
+    }
+
+    v8::Local<v8::Object> wrapper;
+    if (!templateFor(interface)->InstanceTemplate()->NewInstance(context).ToLocal(&wrapper)) {
+        return scope.Escape(v8::Null(isolate_).As<v8::Value>());
+    }
+    wrapper->SetAlignedPointerInInternalField(kNodePointerField, event);
+    wrapper->SetAlignedPointerInInternalField(kTypeTagField, reinterpret_cast<void*>(kTagEvent));
+
+    auto* data = new EventWrapperData();
+    data->event = event; // the wrapper keeps the event alive
+    data->handle.Reset(isolate_, wrapper);
+    data->handle.SetWeak(data, eventFirstPassWeakCallback, v8::WeakCallbackType::kParameter);
+
+    event->wrapperSlot().clear();
+    event->wrapperSlot().data = data;
+    event->wrapperSlot().destroy = &destroyEventWrapperData;
+    return scope.Escape(wrapper.As<v8::Value>());
+}
+
+namespace {
+
+// Defined here because it needs DomBindings::wrapEvent.
+void JsEventListener::handleEvent(dom::Event& event) {
+    V8Runtime* runtime = V8Runtime::fromIsolate(isolate_);
+    DomBindings* bindings = runtime ? runtime->domBindings() : nullptr;
+    if (!runtime || !bindings || function_.IsEmpty()) {
+        return;
+    }
+    v8::HandleScope scope(isolate_);
+    v8::Local<v8::Context> context = runtime->context();
+    if (context.IsEmpty()) {
+        return;
+    }
+    v8::Context::Scope contextScope(context);
+    v8::Local<v8::Value> argv[1] = {bindings->wrapEvent(context, &event)};
+    // `this` is the node the listener is registered on, as the DOM specifies.
+    v8::Local<v8::Value> thisValue = wrapNode(isolate_, event.currentTarget());
+    runtime->callFunction(function_.Get(isolate_), thisValue, 1, argv);
+}
+
+} // namespace
 
 void DomBindings::install(v8::Local<v8::Context> context, dom::Document& document) {
     v8::HandleScope scope(isolate_);
@@ -1027,6 +1553,35 @@ void DomBindings::install(v8::Local<v8::Context> context, dom::Document& documen
     v8::Local<v8::Object> global = context->Global();
     v8::Local<v8::Value> wrapper = wrap(context, &document);
     global->Set(context, toV8(isolate_, "document"), wrapper).Check();
+
+    // `window` is the global object, and it shares the document's event target:
+    // a listener added on window is reached by the same dispatch path.
+    const auto installFunction = [&](const char* name, v8::FunctionCallback callback) {
+        v8::Local<v8::Function> function;
+        if (v8::FunctionTemplate::New(isolate_, callback)->GetFunction(context).ToLocal(&function)) {
+            global->Set(context, toV8(isolate_, name), function).Check();
+        }
+    };
+    installFunction("addEventListener", addEventListenerCallback);
+    installFunction("removeEventListener", removeEventListenerCallback);
+    installFunction("dispatchEvent", dispatchEventCallback);
+
+    // Constructors, so `instanceof` and `new Event(...)` work in page code.
+    const auto installConstructor = [&](const char* name, Interface interface) {
+        v8::Local<v8::Function> constructor;
+        if (templateFor(interface)->GetFunction(context).ToLocal(&constructor)) {
+            global->Set(context, toV8(isolate_, name), constructor).Check();
+        }
+    };
+    installConstructor("EventTarget", Interface::EventTarget);
+    installConstructor("Node", Interface::Node);
+    installConstructor("Element", Interface::Element);
+    installConstructor("Event", Interface::Event);
+    installConstructor("MouseEvent", Interface::MouseEvent);
+    installConstructor("WheelEvent", Interface::WheelEvent);
+    installConstructor("KeyboardEvent", Interface::KeyboardEvent);
+    installConstructor("InputEvent", Interface::InputEvent);
+    installConstructor("FocusEvent", Interface::FocusEvent);
 }
 
 } // namespace xgu::js

@@ -1,5 +1,8 @@
 #include "dom/Node.h"
 
+// Node owns an EventTargetData by unique_ptr; ~Node needs the complete type.
+#include "dom/EventTarget.h"
+
 #include "dom/Document.h"
 #include "dom/Element.h"
 

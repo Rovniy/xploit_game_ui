@@ -988,7 +988,7 @@ void StyleEngine::recalcStyles(float viewportWidth, float viewportHeight) {
     if (indexDirty_) {
         rebuildIndex();
     }
-    matcher_ = SelectorMatcher(stateProvider_);
+    matcher_ = SelectorMatcher(document_.elementStateProvider());
 
     dom::Element* root = document_.documentElement();
     if (!root) {

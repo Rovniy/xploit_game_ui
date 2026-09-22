@@ -33,6 +33,14 @@ public:
 
     v8::Isolate* isolate() const { return isolate_; }
     DomBindings* domBindings() const { return dom_.get(); }
+    // The view's context; empty before initialize() or after dispose().
+    v8::Local<v8::Context> context() const;
+
+    // Calls a script function, reporting anything it throws the way an uncaught
+    // error is reported, and draining microtasks afterwards. Event listeners
+    // and timers go through here so one bad handler cannot break the frame.
+    void callFunction(v8::Local<v8::Function> function, v8::Local<v8::Value> thisValue, int argc,
+                      v8::Local<v8::Value> argv[]);
 
     // Exposes `document` (and the DOM interfaces) for this view's document.
     void installDom(dom::Document& document);

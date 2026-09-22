@@ -27,6 +27,11 @@ namespace xgu::paint {
 class Painter;
 }
 
+namespace xgu::input {
+class InputRouter;
+struct InputEvent;
+} // namespace xgu::input
+
 namespace xgu {
 
 enum class TextureFormat : uint8_t { BGRA8 = 0, RGBA8 = 1 };
@@ -119,6 +124,11 @@ public:
 
     css::StyleEngine* styleEngine() const { return styleEngine_.get(); }
     layout::LayoutEngine* layoutEngine() const { return layoutEngine_.get(); }
+    input::InputRouter* inputRouter() const { return inputRouter_.get(); }
+
+    // Routes one host input event into the DOM. Returns true when the document
+    // changed and a repaint is due.
+    bool sendInput(const input::InputEvent& event);
 
     // Recomputes styles and lays the document out for the current size.
     // Returns false when there is nothing to lay out.
@@ -161,6 +171,7 @@ private:
     std::unique_ptr<css::StyleEngine> styleEngine_;
     std::unique_ptr<layout::LayoutEngine> layoutEngine_;
     std::unique_ptr<paint::Painter> painter_;
+    std::unique_ptr<input::InputRouter> inputRouter_;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

@@ -4,6 +4,7 @@
 #include "core/AssetLoader.h"
 #include "dom/Document.h"
 #include "dom/Element.h"
+#include "dom/TextControl.h"
 #include "paint/ImageCache.h"
 #include "text/FontManager.h"
 
@@ -294,6 +295,19 @@ void LayoutEngine::buildChildren(dom::Element& element, LayoutBox& box) {
         return;
     }
 
+    if (element.isTextControl()) {
+        // A text control shows its own value, not DOM children. Its box is an
+        // inline formatting context built from that value (or the placeholder).
+        auto inlineBox = std::make_unique<LayoutBox>(BoxKind::InlineContext, nullptr, style);
+        YGNodeSetNodeType(inlineBox->yogaNode(), YGNodeTypeText);
+        YGNodeSetMeasureFunc(inlineBox->yogaNode(), &measureBox);
+        YGNodeSetBaselineFunc(inlineBox->yogaNode(), &baselineBox);
+        dom::TextControl& control = element.ensureTextControl();
+        inlineBox->ensureInlineContent().buildLiteral(*style, dom::utf16ToUtf8(control.displayText()));
+        box.addChild(std::move(inlineBox));
+        return;
+    }
+
     if (hasOnlyInlineContent(element)) {
         // One anonymous box carrying the whole inline formatting context.
         auto inlineBox = std::make_unique<LayoutBox>(BoxKind::InlineContext, nullptr, style);
@@ -524,6 +538,11 @@ void LayoutEngine::rebuildInlineContentIfRestyled(LayoutBox& box) {
         return;
     }
     if (box.styleUsedForText() == box.style()) {
+        return;
+    }
+    if (parent->element()->isTextControl()) {
+        box.setStyleUsedForText(box.style());
+        content->buildLiteral(*box.style(), dom::utf16ToUtf8(parent->element()->ensureTextControl().displayText()));
         return;
     }
     // Every run holds a copy of its element's text properties, so a restyle has

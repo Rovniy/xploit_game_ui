@@ -7,6 +7,7 @@
 namespace xgu::dom {
 class Document;
 class Element;
+class Event;
 class Node;
 } // namespace xgu::dom
 
@@ -24,7 +25,23 @@ class V8Runtime;
 // through its parent.
 class DomBindings {
 public:
-    enum class Interface : uint8_t { Node, Element, Text, Comment, Document, TokenList, StyleDeclaration, Count };
+    enum class Interface : uint8_t {
+        EventTarget,
+        Node,
+        Element,
+        Text,
+        Comment,
+        Document,
+        TokenList,
+        StyleDeclaration,
+        Event,
+        MouseEvent,
+        WheelEvent,
+        KeyboardEvent,
+        InputEvent,
+        FocusEvent,
+        Count,
+    };
 
     DomBindings(V8Runtime& runtime, v8::Isolate* isolate);
     ~DomBindings();
@@ -36,8 +53,18 @@ public:
     // Returns the wrapper for `node`, creating it on first use. Null nodes map
     // to JavaScript null.
     v8::Local<v8::Value> wrap(v8::Local<v8::Context> context, dom::Node* node);
-    // Node behind a wrapper object, or nullptr when `value` is not a wrapper.
+    // Node behind a wrapper object, or nullptr when `value` is not a node
+    // wrapper. Events and the transient views are rejected by their type tag.
     static dom::Node* unwrap(v8::Local<v8::Value> value);
+
+    // Wrapper for an event, created on first use and cached on the event. The
+    // prototype comes from the event's category, so `instanceof MouseEvent`
+    // works.
+    v8::Local<v8::Value> wrapEvent(v8::Local<v8::Context> context, dom::Event* event);
+    static dom::Event* unwrapEvent(v8::Local<v8::Value> value);
+
+    // Element behind a transient view (classList, style), or nullptr.
+    static dom::Element* unwrapView(v8::Local<v8::Value> value);
 
     // Transient DOMTokenList view over an element (Element.classList).
     v8::Local<v8::Value> wrapTokenList(v8::Local<v8::Context> context, dom::Element& element);

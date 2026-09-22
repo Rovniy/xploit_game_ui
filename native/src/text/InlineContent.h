@@ -1,9 +1,11 @@
 #pragma once
 
 #include "css/ComputedStyle.h"
+#include "layout/Rect.h"
 
 #include <modules/skparagraph/include/Paragraph.h>
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -44,6 +46,10 @@ public:
     void build(const dom::Element& container, const css::ComputedStyle& containerStyle,
                std::vector<InlinePlaceholder> placeholders);
 
+    // Builds from one literal string, with no white-space collapsing: the value
+    // of a text control is shown exactly as it is.
+    void buildLiteral(const css::ComputedStyle& containerStyle, std::string utf8);
+
     bool empty() const { return text_.empty() && placeholders_.empty(); }
     const std::string& text() const { return text_; }
 
@@ -65,12 +71,24 @@ public:
     // Paints the last laid-out paragraph (Stage 5 uses this).
     void paint(SkCanvas* canvas, float x, float y);
 
+    // --- caret and selection geometry, in UTF-16 code units -----------------
+    // Boxes covering [start, end), relative to the paragraph origin.
+    std::vector<layout::Rect> rectsForRange(size_t start, size_t end);
+    // A one-pixel-wide caret box at `offset`.
+    layout::Rect caretRect(size_t offset);
+    // Offset nearest to a point given relative to the paragraph origin.
+    size_t offsetAtPoint(float x, float y);
+
     const std::vector<InlinePlaceholder>& placeholders() const { return placeholders_; }
     // Updates the reserved sizes (the boxes are measured by the layout engine).
     void setPlaceholderSizes(const std::vector<InlinePlaceholder>& sizes);
 
     // Invalidates the shaped paragraph (text or style changed).
     void invalidate();
+
+    // Length of the text in UTF-16 code units, which is what the paragraph and
+    // the text controls count in.
+    size_t utf16Length() const;
 
 private:
     void ensureParagraph();

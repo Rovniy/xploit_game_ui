@@ -107,6 +107,30 @@ void V8Runtime::installGlobals(v8::Local<v8::Context> context) {
     global->Set(context, v8::String::NewFromUtf8Literal(isolate_, "window"), global).Check();
 }
 
+v8::Local<v8::Context> V8Runtime::context() const {
+    return context_.IsEmpty() ? v8::Local<v8::Context>() : context_.Get(isolate_);
+}
+
+void V8Runtime::callFunction(v8::Local<v8::Function> function, v8::Local<v8::Value> thisValue, int argc,
+                             v8::Local<v8::Value> argv[]) {
+    if (!isolate_ || function.IsEmpty() || context_.IsEmpty()) {
+        return;
+    }
+    v8::Isolate::Scope isolateScope(isolate_);
+    v8::HandleScope handleScope(isolate_);
+    v8::Local<v8::Context> context = context_.Get(isolate_);
+    v8::Context::Scope contextScope(context);
+    v8::TryCatch tryCatch(isolate_);
+    v8::Local<v8::Value> result;
+    if (!function->Call(context, thisValue, argc, argv).ToLocal(&result)) {
+        reportException(tryCatch, context);
+    }
+    isolate_->PerformMicrotaskCheckpoint();
+    if (tryCatch.HasCaught()) {
+        reportException(tryCatch, context);
+    }
+}
+
 void V8Runtime::evaluate(std::string_view source, std::string_view originName) {
     if (!isolate_) {
         return;

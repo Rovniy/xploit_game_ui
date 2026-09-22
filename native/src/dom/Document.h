@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dom/Element.h"
+#include "dom/FocusController.h"
 #include "dom/Node.h"
 
 #include <string>
@@ -10,6 +11,10 @@
 
 namespace xgu {
 class IAssetLoader;
+}
+
+namespace xgu::css {
+class ElementStateProvider;
 }
 
 namespace xgu::dom {
@@ -51,6 +56,16 @@ public:
     MutationSink* mutationSink() const { return sink_; }
     void setMutationSink(MutationSink* sink) { sink_ = sink; }
 
+    // Interaction state behind :hover, :active, :focus and :focus-within,
+    // provided by the input router. Style recalculation and Element.matches
+    // both read it here, so they can never disagree.
+    const css::ElementStateProvider* elementStateProvider() const { return elementState_; }
+    void setElementStateProvider(const css::ElementStateProvider* provider) { elementState_ = provider; }
+
+    // Where element.focus()/blur() go; the input router installs itself here.
+    FocusController* focusController() const { return focus_; }
+    void setFocusController(FocusController* controller) { focus_ = controller; }
+
     RefPtr<Element> createElement(std::string_view tagName);
     RefPtr<Text> createTextNode(std::string_view data);
     RefPtr<Comment> createComment(std::string_view data);
@@ -80,6 +95,8 @@ private:
     std::string url_;
     IAssetLoader* assetLoader_ = nullptr;
     MutationSink* sink_ = nullptr;
+    const css::ElementStateProvider* elementState_ = nullptr;
+    FocusController* focus_ = nullptr;
     uint64_t treeVersion_ = 0;
     // Documents may hold several elements with the same id; the first in tree
     // order wins, matching browsers.

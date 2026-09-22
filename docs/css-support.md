@@ -80,12 +80,28 @@
 | `document.documentElement`, `head`, `body`, `title`, `URL`, `getElementsByClassName`, `getElementsByTagName` | **готово** |
 | `Element`: `id`, `className`, `classList` (add/remove/toggle/contains/item/length/value), `getAttribute/setAttribute/removeAttribute/hasAttribute`, `textContent`, `innerHTML`, `outerHTML`, `children`, `childNodes`, `parentNode`, `parentElement`, `firstChild`/`lastChild`/`nextSibling`/`previousSibling`, `appendChild`, `insertBefore`, `removeChild`, `remove`, `contains`, `matches`, `tagName`, `nodeType`, `nodeName`, `isConnected` | **готово** |
 | `Element.style` (свойства через camelCase, сокращённые свойства, `setProperty`, `getPropertyValue`, `removeProperty`, `cssText`) | **готово** |
-| `getBoundingClientRect` | план (Этап 6) |
-| `addEventListener`/`removeEventListener`, `Event` (`preventDefault`, `stopPropagation`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent` | план |
+| `getBoundingClientRect` | план (Этап 8) |
+| `addEventListener`/`removeEventListener`/`dispatchEvent`, `new Event(type, init)`, `Event` (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`, `target`, `currentTarget`, `eventPhase`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent`, опции `capture`/`once` | **готово** |
 | `setTimeout`/`setInterval`/`clear*`, `requestAnimationFrame`, `performance.now` | план |
 | `console.log/warn/error/info/debug` → Unity Console | **готово** |
+| `element.focus()`, `element.blur()`, `document.activeElement` | **готово** |
+| `input`/`textarea`: `value`, `selectionStart`, `selectionEnd`, `setSelectionRange`, `select()` | **готово** |
 | `Unity.emit`, `Unity.on`, `Unity.off`, `Unity.call` (Promise) | план |
 | `fetch`, `XMLHttpRequest`, `localStorage`, `history`, `location`, ES-модули | не планируется / позже |
+
+## События и ввод
+
+| Возможность | Статус | Примечания |
+|---|---|---|
+| Мышь: `mousedown`, `mouseup`, `click`, `dblclick`, `mousemove`, `mouseover`, `mouseout`, `mouseenter`, `mouseleave` | **готово** | `click` — на общем предке нажатия и отпускания; `dblclick` в пределах 500 мс и 4 px |
+| Колесо: `wheel` | **готово** | `deltaMode` всегда 0 (пиксели): хост пересчитывает щелчки |
+| Клавиатура: `keydown`, `keyup` | **готово** | уходят в сфокусированный элемент, иначе в `body` |
+| Текст: `beforeinput`, `input`, `change` | **готово** | `change` — по потере фокуса и по Enter в однострочном поле |
+| Фокус: `focus`, `blur`, `focusin`, `focusout` | **готово** | фокус переходит к ближайшему фокусируемому предку по нажатию |
+| Псевдоклассы `:hover`, `:active`, `:focus`, `:focus-within` | **готово** | состояние ставится на цепочку предков |
+| Редактирование `input`/`textarea` | **готово** | вставка, Backspace/Delete, стрелки, Home/End, Shift-выделение, Ctrl+A, установка каретки мышью, выделение перетаскиванием, маска пароля, placeholder |
+| Касания | **готово** (частично) | первый палец зеркалится в мышь; мультитач и `TouchEvent` не выдаются |
+| Буфер обмена, IME-композиция, отмена/повтор | не планируется в MVP | Unity передаёт уже составленный текст |
 
 ## Задокументированные отклонения от браузеров (MVP)
 
@@ -104,3 +120,8 @@
 13. Сокращённое свойство можно записать через `element.style` (`style.background = '#0b1220'`), но чтение возвращает пустую строку: сокращение не собирается обратно из longhand'ов. Читать нужно longhand (`style.backgroundColor`).
 14. Грязные прямоугольники не вычисляются: каждый кадр перерисовывает весь viewport, кэша `SkPicture` на бокс нет. Это задача Этапа 10.
 15. `border-image`, `inset`-тени и градиенты в `background-image` не рисуются.
+16. `window` и `document` — одна и та же цель событий: слушатель, добавленный на `window`, срабатывает на фазе всплытия до документа. Отдельного объекта `Window` над `document` нет.
+17. Каретка не мигает. Мигание требует перерисовки дважды в секунду на каждое сфокусированное поле; для игрового UI это лишняя работа, поэтому каретка просто видна, пока поле в фокусе.
+18. Порядок обхода по Tab не реализован: фокус ставится нажатием мыши, `element.focus()` или `xgu_view_set_focus`.
+19. Слушателем может быть только функция; объект с методом `handleEvent` не поддерживается. `AbortSignal` в опциях не поддерживается.
+20. `input` показывает значение одной строкой без прокрутки: текст длиннее поля обрезается по `overflow: hidden`, каретка за край не уводит содержимое.

@@ -3,6 +3,7 @@
 #include "css/ComputedStyle.h"
 #include "css/StyleSheet.h"
 #include "dom/Node.h"
+#include "dom/TextControl.h"
 #include "html/HtmlTags.h"
 
 #include <memory>
@@ -35,6 +36,24 @@ public:
     bool removeClass(std::string_view name);
     bool toggleClass(std::string_view name);
 
+    // --- interaction state ---------------------------------------------------
+    // Set by the input router and read by the selector matcher for :hover,
+    // :active, :focus and :focus-within.
+    enum State : uint8_t {
+        kStateNone = 0,
+        kStateHover = 1 << 0,
+        kStateActive = 1 << 1,
+        kStateFocus = 1 << 2,
+        kStateFocusWithin = 1 << 3,
+    };
+
+    uint8_t state() const { return state_; }
+    bool hasState(uint8_t bits) const { return (state_ & bits) != 0; }
+    // Returns true when the state actually changed. A change invalidates this
+    // element and its subtree, because a descendant selector such as
+    // ".panel:hover .label" can depend on an ancestor's state.
+    bool setState(uint8_t bits, bool on);
+
     const std::vector<Attribute>& attributes() const { return attributes_; }
     bool hasAttribute(const Atom& name) const;
     const std::string* getAttribute(const Atom& name) const;
@@ -55,6 +74,14 @@ public:
     // Filled by css::StyleEngine; null until the first style recalculation.
     const css::ComputedStyle* computedStyle() const { return computedStyle_.get(); }
     void setComputedStyle(RefPtr<css::ComputedStyle> style) { computedStyle_ = std::move(style); }
+
+    // --- form controls -------------------------------------------------------
+    bool isTextControl() const {
+        return knownTag_ == html::HtmlTag::Input || knownTag_ == html::HtmlTag::Textarea;
+    }
+    // Editing state, created on first use for <input> and <textarea>.
+    TextControl* textControl() const { return textControl_.get(); }
+    TextControl& ensureTextControl();
 
     std::string innerHTML() const;
     std::string outerHTML() const;
@@ -85,9 +112,11 @@ private:
     Atom tagName_;
     html::HtmlTag knownTag_;
     Atom id_;
+    uint8_t state_ = kStateNone;
     std::vector<Atom> classes_;
     std::vector<Attribute> attributes_;
     std::unique_ptr<css::DeclarationBlock> inlineStyle_;
+    std::unique_ptr<TextControl> textControl_;
     RefPtr<css::ComputedStyle> computedStyle_;
     bool syncingStyleAttribute_ = false;
 };

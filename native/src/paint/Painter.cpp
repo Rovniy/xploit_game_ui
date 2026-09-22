@@ -4,8 +4,11 @@
 #include "core/Log.h"
 #include "css/ComputedStyle.h"
 #include "dom/Document.h"
+#include "css/SelectorMatcher.h"
 #include "dom/Element.h"
+#include "dom/TextControl.h"
 #include "layout/LayoutEngine.h"
+#include "paint/BoxGeometry.h"
 #include "paint/ImageCache.h"
 
 #include <include/core/SkCanvas.h>
@@ -33,124 +36,6 @@ using layout::LayoutBox;
 using layout::Rect;
 
 SkColor toSkColor(const css::Color& color) { return static_cast<SkColor>(color.toArgb()); }
-
-SkRect toSkRect(const Rect& rect) {
-    return SkRect::MakeXYWH(rect.x, rect.y, rect.width, rect.height);
-}
-
-// Resolves a border radius against the box it rounds.
-float resolveRadius(const css::Length& radius, float boxWidth, float boxHeight, float fontSize) {
-    if (radius.isPercent()) {
-        // CSS resolves horizontal radii against the width and vertical ones
-        // against the height; the engine keeps corners circular, so the smaller
-        // dimension wins.
-        return radius.value / 100.0f * std::min(boxWidth, boxHeight);
-    }
-    css::LengthContext context;
-    context.fontSize = fontSize;
-    context.rootFontSize = fontSize;
-    return std::max(0.0f, css::resolveLength(radius, context, 0.0f));
-}
-
-// Rounded rectangle of a box, shrunk by `inset` on every side (used for the
-// inner edge of a border).
-SkRRect roundedRect(const Rect& box, const ComputedStyle& style, const float inset[4]) {
-    SkRect rect = toSkRect(box);
-    if (inset) {
-        rect.fLeft += inset[css::kLeft];
-        rect.fTop += inset[css::kTop];
-        rect.fRight -= inset[css::kRight];
-        rect.fBottom -= inset[css::kBottom];
-        if (rect.fRight < rect.fLeft) {
-            rect.fRight = rect.fLeft;
-        }
-        if (rect.fBottom < rect.fTop) {
-            rect.fBottom = rect.fTop;
-        }
-    }
-    if (!style.hasBorderRadius()) {
-        return SkRRect::MakeRect(rect);
-    }
-    const float width = box.width;
-    const float height = box.height;
-    float radii[4];
-    for (int corner = 0; corner < 4; ++corner) {
-        radii[corner] = resolveRadius(style.borderRadius[static_cast<size_t>(corner)], width, height, style.fontSize);
-        if (inset) {
-            // The inner curve is the outer one minus the border it sits behind.
-            const float shrink = corner == css::kTopLeft      ? std::min(inset[css::kTop], inset[css::kLeft])
-                                 : corner == css::kTopRight   ? std::min(inset[css::kTop], inset[css::kRight])
-                                 : corner == css::kBottomRight ? std::min(inset[css::kBottom], inset[css::kRight])
-                                                                : std::min(inset[css::kBottom], inset[css::kLeft]);
-            radii[corner] = std::max(0.0f, radii[corner] - shrink);
-        }
-    }
-    SkVector corners[4] = {
-        {radii[css::kTopLeft], radii[css::kTopLeft]},
-        {radii[css::kTopRight], radii[css::kTopRight]},
-        {radii[css::kBottomRight], radii[css::kBottomRight]},
-        {radii[css::kBottomLeft], radii[css::kBottomLeft]},
-    };
-    SkRRect result;
-    result.setRectRadii(rect, corners);
-    return result;
-}
-
-SkRRect borderBoxRRect(const LayoutBox& box) {
-    return roundedRect(box.borderBox(), *box.style(), nullptr);
-}
-
-SkRRect paddingBoxRRect(const LayoutBox& box) {
-    const float inset[4] = {box.borderEdge(css::kTop), box.borderEdge(css::kRight), box.borderEdge(css::kBottom),
-                            box.borderEdge(css::kLeft)};
-    return roundedRect(box.borderBox(), *box.style(), inset);
-}
-
-// The transform matrix with its origin applied, ready for SkCanvas::concat.
-SkMatrix transformMatrix(const LayoutBox& box) {
-    const ComputedStyle& style = *box.style();
-    const Rect& frame = box.borderBox();
-    const auto axis = [&](size_t index, float extent) {
-        const css::Length& length = style.transformOrigin[index];
-        if (length.isPercent()) {
-            return length.value / 100.0f * extent;
-        }
-        css::LengthContext context;
-        context.fontSize = style.fontSize;
-        context.rootFontSize = style.fontSize;
-        return css::resolveLength(length, context, extent / 2.0f);
-    };
-    const float originX = frame.x + axis(0, frame.width);
-    const float originY = frame.y + axis(1, frame.height);
-
-    SkMatrix matrix = SkMatrix::MakeAll(style.transform.a, style.transform.c, style.transform.e, style.transform.b,
-                                        style.transform.d, style.transform.f, 0.0f, 0.0f, 1.0f);
-    SkMatrix result = SkMatrix::Translate(originX, originY);
-    result.preConcat(matrix);
-    result.preTranslate(-originX, -originY);
-    return result;
-}
-
-bool isVisible(const LayoutBox& box) {
-    const ComputedStyle* style = box.style();
-    return style && style->visibility == css::Visibility::Visible;
-}
-
-// z-index of a box for ordering; boxes that are not stacking contexts sort as 0.
-int stackingOrder(const LayoutBox& box) {
-    const ComputedStyle* style = box.style();
-    return style && !style->zIndexAuto ? style->zIndex : 0;
-}
-
-bool createsStackingContext(const LayoutBox& box) {
-    const ComputedStyle* style = box.style();
-    return style && style->createsStackingContext();
-}
-
-bool isPositioned(const LayoutBox& box) {
-    const ComputedStyle* style = box.style();
-    return style && style->isPositioned();
-}
 
 } // namespace
 
@@ -250,6 +135,45 @@ void Painter::paintDecorations(SkCanvas& canvas, LayoutBox& box) {
     if (box.kind() == layout::BoxKind::Replaced) {
         paintReplaced(canvas, box);
     }
+}
+
+void Painter::paintTextControl(SkCanvas& canvas, LayoutBox& box, text::InlineContent& content, const Rect& frame,
+                               bool beforeText) {
+    // The control is the parent element of this anonymous inline box.
+    LayoutBox* parent = box.parent();
+    dom::Element* element = parent ? parent->element() : nullptr;
+    dom::TextControl* control = element ? element->textControl() : nullptr;
+    if (!control || !control->isEditable()) {
+        return;
+    }
+    const css::ElementStateProvider* state = document_.elementStateProvider();
+    if (!state || !state->isFocused(*element)) {
+        return; // no caret and no selection unless the field has focus
+    }
+
+    if (beforeText) {
+        // The selection highlight goes behind the glyphs.
+        if (!control->hasSelection() || control->showingPlaceholder()) {
+            return;
+        }
+        SkPaint paint;
+        paint.setAntiAlias(true);
+        paint.setColor(SkColorSetARGB(0x66, 0x5A, 0xC8, 0xFA));
+        for (const Rect& rect : content.rectsForRange(control->selectionStart(), control->selectionEnd())) {
+            canvas.drawRect(SkRect::MakeXYWH(frame.x + rect.x, frame.y + rect.y, rect.width, rect.height), paint);
+        }
+        return;
+    }
+
+    // The caret goes on top, and only when nothing is selected.
+    if (control->hasSelection()) {
+        return;
+    }
+    const Rect caret = control->showingPlaceholder() ? content.caretRect(0) : content.caretRect(control->caret());
+    SkPaint paint;
+    paint.setColor(toSkColor(box.style()->color));
+    canvas.drawRect(SkRect::MakeXYWH(frame.x + caret.x, frame.y + caret.y, std::max(1.0f, caret.width), caret.height),
+                    paint);
 }
 
 void Painter::paintShadows(SkCanvas& canvas, LayoutBox& box) {
@@ -527,7 +451,9 @@ void Painter::paintChildren(SkCanvas& canvas, LayoutBox& box) {
             // The paragraph origin is the content box: that is the width it was
             // laid out at, and what the placeholder rects are relative to.
             const Rect frame = box.contentBox();
+            paintTextControl(canvas, box, *content, frame, true);
             content->paint(&canvas, frame.x, frame.y);
+            paintTextControl(canvas, box, *content, frame, false);
         }
         for (const std::unique_ptr<LayoutBox>& atomic : box.atomicInlines()) {
             paintChild(atomic.get());

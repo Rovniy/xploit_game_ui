@@ -221,6 +221,56 @@ XGU_API xgu_status xgu_view_reload(xgu_view_id view) {
     return Runtime::instance().reloadDocument(static_cast<ViewId>(view)) ? XGU_OK : XGU_ERR_INVALID_VIEW;
 }
 
+namespace {
+
+// Copies the host's event into the engine's own struct. Strings are copied here
+// because the caller's buffers do not outlive the call.
+input::InputEvent toInputEvent(const xgu_input_event& source) {
+    input::InputEvent event;
+    event.type = static_cast<input::InputEventType>(source.type);
+    event.x = source.x;
+    event.y = source.y;
+    event.deltaX = source.delta_x;
+    event.deltaY = source.delta_y;
+    event.button = source.button;
+    event.buttons = source.buttons;
+    event.modifiers.alt = (source.modifiers & XGU_MOD_ALT) != 0;
+    event.modifiers.ctrl = (source.modifiers & XGU_MOD_CTRL) != 0;
+    event.modifiers.shift = (source.modifiers & XGU_MOD_SHIFT) != 0;
+    event.modifiers.meta = (source.modifiers & XGU_MOD_META) != 0;
+    event.key = source.key ? source.key : "";
+    event.code = source.code ? source.code : "";
+    event.text = source.text ? source.text : "";
+    event.touchId = source.touch_id;
+    event.time = source.time;
+    event.repeat = source.repeat;
+    return event;
+}
+
+} // namespace
+
+XGU_API xgu_status xgu_view_send_input(xgu_view_id view, const xgu_input_event* event) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    if (!event || event->struct_size < sizeof(xgu_input_event)) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    if (event->type < XGU_INPUT_MOUSE_MOVE || event->type > XGU_INPUT_WINDOW_BLUR) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    return Runtime::instance().sendInput(static_cast<ViewId>(view), toInputEvent(*event)) ? XGU_OK
+                                                                                         : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_view_set_focus(xgu_view_id view, const char* element_id) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    return Runtime::instance().setFocus(static_cast<ViewId>(view), element_id ? element_id : "") ? XGU_OK
+                                                                                                 : XGU_ERR_INVALID_VIEW;
+}
+
 XGU_API xgu_status xgu_view_repaint(xgu_view_id view) {
     if (!Runtime::instance().initialized()) {
         return XGU_ERR_NOT_INITIALIZED;

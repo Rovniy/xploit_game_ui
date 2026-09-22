@@ -13,7 +13,12 @@ class Document;
 namespace xgu::layout {
 class LayoutBox;
 class LayoutEngine;
+struct Rect;
 } // namespace xgu::layout
+
+namespace xgu::text {
+class InlineContent;
+}
 
 namespace xgu::paint {
 
@@ -45,6 +50,10 @@ private:
     void paintShadows(SkCanvas& canvas, layout::LayoutBox& box);
     void paintReplaced(SkCanvas& canvas, layout::LayoutBox& box);
     void paintChildren(SkCanvas& canvas, layout::LayoutBox& box);
+    // Selection highlight (before the glyphs) and caret (after them) for a
+    // focused <input> or <textarea>.
+    void paintTextControl(SkCanvas& canvas, layout::LayoutBox& box, text::InlineContent& content,
+                          const layout::Rect& frame, bool beforeText);
 
     dom::Document& document_;
     layout::LayoutEngine& layout_;

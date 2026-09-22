@@ -244,6 +244,23 @@ void Element::didDisconnect() {
     }
 }
 
+TextControl& Element::ensureTextControl() {
+    if (!textControl_) {
+        textControl_ = std::make_unique<TextControl>(*this);
+    }
+    return *textControl_;
+}
+
+bool Element::setState(uint8_t bits, bool on) {
+    const uint8_t updated = on ? static_cast<uint8_t>(state_ | bits) : static_cast<uint8_t>(state_ & ~bits);
+    if (updated == state_) {
+        return false;
+    }
+    state_ = updated;
+    markDirty(kDirtyStyleSelf | kDirtyStyleChildren);
+    return true;
+}
+
 std::vector<Element*> Element::childElements() const {
     std::vector<Element*> result;
     for (size_t i = 0; i < childCount(); ++i) {

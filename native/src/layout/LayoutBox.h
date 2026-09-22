@@ -1,6 +1,7 @@
 #pragma once
 
 #include "css/ComputedStyle.h"
+#include "layout/Rect.h"
 #include "text/InlineContent.h"
 
 #include <yoga/Yoga.h>
@@ -13,27 +14,6 @@ class Element;
 }
 
 namespace xgu::layout {
-
-struct Rect {
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-
-    float right() const { return x + width; }
-    float bottom() const { return y + height; }
-    bool isEmpty() const { return width <= 0.0f || height <= 0.0f; }
-    bool contains(float px, float py) const {
-        return px >= x && px < x + width && py >= y && py < y + height;
-    }
-    Rect inset(float top, float right, float bottom, float left) const {
-        return Rect{x + left, y + top, std::max(0.0f, width - left - right),
-                    std::max(0.0f, height - top - bottom)};
-    }
-    bool operator==(const Rect& other) const {
-        return x == other.x && y == other.y && width == other.width && height == other.height;
-    }
-};
 
 enum class BoxKind : uint8_t {
     Block,          // block container, laid out as a column flex line

@@ -4,6 +4,7 @@
 #include "core/RuntimeThread.h"
 #include "core/View.h"
 #include "core/ViewRegistry.h"
+#include "input/InputRouter.h"
 #include "render/RenderSystem.h"
 
 #include <memory>
@@ -44,6 +45,11 @@ public:
     bool reloadDocument(ViewId id);
     // Forces one repaint; normally tick() does this for views that changed.
     bool repaintView(ViewId id);
+
+    // Queues one host input event for the view; handled on the runtime thread.
+    bool sendInput(ViewId id, input::InputEvent event);
+    // Focuses the element with `elementId`, or clears focus when it is empty.
+    bool setFocus(ViewId id, std::string elementId);
     // Advances all views by one frame (JS message loop, later timers/rAF/layout).
     void tick(double timeSeconds);
 

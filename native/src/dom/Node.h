@@ -2,8 +2,11 @@
 
 #include "core/Atom.h"
 #include "core/RefCounted.h"
+#include "core/WrapperSlot.h"
+#include "dom/EventTarget.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,6 +15,7 @@ namespace xgu::dom {
 
 class Document;
 class Element;
+class Event;
 
 enum class NodeType : uint8_t {
     Element = 1,
@@ -30,30 +34,6 @@ enum DirtyBits : uint8_t {
     kDirtyLayout = 1 << 3,
     kDirtyPaintSelf = 1 << 4,
     kDirtyPaintChildren = 1 << 5,
-};
-
-// Opaque, self-destroying slot the JavaScript bindings use to cache a node's
-// wrapper object. The DOM knows nothing about V8.
-struct WrapperSlot {
-    void* data = nullptr;
-    void (*destroy)(void*) = nullptr;
-
-    WrapperSlot() = default;
-    WrapperSlot(const WrapperSlot&) = delete;
-    WrapperSlot& operator=(const WrapperSlot&) = delete;
-    ~WrapperSlot() { clear(); }
-
-    void clear() {
-        // Reset first: the callback may release the last reference to the node
-        // that owns this slot, and nothing may touch `this` afterwards.
-        void* owned = data;
-        void (*deleter)(void*) = destroy;
-        data = nullptr;
-        destroy = nullptr;
-        if (owned && deleter) {
-            deleter(owned);
-        }
-    }
 };
 
 // Base class of every node. Children are owned by their parent (strong), the
@@ -105,6 +85,18 @@ public:
 
     WrapperSlot& wrapperSlot() { return wrapper_; }
 
+    // --- EventTarget ---------------------------------------------------------
+    // Returns false when an identical registration already exists, as the DOM
+    // requires (same type, same handler, same capture flag).
+    bool addEventListener(const Atom& type, RefPtr<EventListener> listener, bool capture, bool once);
+    bool removeEventListener(const Atom& type, const EventListener& listener, bool capture);
+    // True when this node has a listener for `type` in either phase. The input
+    // router uses it to skip work nobody is listening for.
+    bool hasEventListener(const Atom& type) const;
+    // Runs this node's listeners for the event's current phase. The dispatcher
+    // calls it; use dom::dispatchEvent to fire an event properly.
+    void runEventListeners(Event& event, bool capture);
+
 protected:
     Node(NodeType type, Document* document) : type_(type), document_(document) {}
     ~Node() override;
@@ -124,6 +116,8 @@ private:
     uint8_t dirty_ = kDirtyNone;
     std::vector<RefPtr<Node>> children_;
     WrapperSlot wrapper_;
+    // Allocated on the first addEventListener: most nodes never have one.
+    std::unique_ptr<EventTargetData> events_;
 };
 
 class CharacterData : public Node {

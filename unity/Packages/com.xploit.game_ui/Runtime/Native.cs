@@ -196,6 +196,93 @@ namespace Xploit.GameUI
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern Status xgu_view_draw_test_frame(ulong view);
 
+        // ---- input ---------------------------------------------------------
+
+        public enum InputType
+        {
+            MouseMove = 0,
+            MouseDown = 1,
+            MouseUp = 2,
+            Wheel = 3,
+            PointerLeave = 4,
+            KeyDown = 5,
+            KeyUp = 6,
+            Text = 7,
+            TouchBegin = 8,
+            TouchMove = 9,
+            TouchEnd = 10,
+            WindowBlur = 11,
+        }
+
+        public enum MouseButton
+        {
+            None = -1,
+            Left = 0,
+            Middle = 1,
+            Right = 2,
+        }
+
+        [Flags]
+        public enum MouseButtons : uint
+        {
+            None = 0,
+            Left = 1 << 0,
+            Right = 1 << 1,
+            Middle = 1 << 2,
+        }
+
+        [Flags]
+        public enum Modifiers : uint
+        {
+            None = 0,
+            Alt = 1 << 0,
+            Ctrl = 1 << 1,
+            Shift = 1 << 2,
+            Meta = 1 << 3,
+        }
+
+        /// <summary>
+        /// Mirrors xgu_input_event. The string fields are UTF-8 pointers the
+        /// caller owns for the duration of the call, so
+        /// <see cref="HtmlView"/> pins them around xgu_view_send_input.
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct InputEvent
+        {
+            public uint StructSize;
+            public InputType Type;
+            public float X;
+            public float Y;
+            public float DeltaX;
+            public float DeltaY;
+            public int Button;
+            public uint Buttons;
+            public uint Modifiers;
+            public IntPtr Key;
+            public IntPtr Code;
+            public IntPtr Text;
+            public int TouchId;
+            public double Time;
+            [MarshalAs(UnmanagedType.I1)] public bool Repeat;
+
+            public static InputEvent Create(InputType type)
+            {
+                return new InputEvent
+                {
+                    StructSize = (uint)Marshal.SizeOf<InputEvent>(),
+                    Type = type,
+                    Button = (int)MouseButton.None,
+                };
+            }
+        }
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_send_input(ulong view, ref InputEvent evt);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_set_focus(ulong view,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string elementId);
+
         // ---- helpers -------------------------------------------------------
 
         public static string Version()

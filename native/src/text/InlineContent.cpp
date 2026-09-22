@@ -287,6 +287,77 @@ void InlineContent::ensureParagraph() {
     laidOutWidth_ = -1.0f;
 }
 
+void InlineContent::buildLiteral(const css::ComputedStyle& containerStyle, std::string utf8) {
+    containerStyle_ = containerStyle;
+    // No white-space processing: a control shows exactly what it holds.
+    containerStyle_.whiteSpace = css::WhiteSpace::Pre;
+    text_ = std::move(utf8);
+    runs_.clear();
+    placeholders_.clear();
+    invalidate();
+}
+
+std::vector<layout::Rect> InlineContent::rectsForRange(size_t start, size_t end) {
+    std::vector<layout::Rect> result;
+    ensureParagraph();
+    if (!paragraph_ || end <= start) {
+        return result;
+    }
+    const std::vector<TextBox> boxes = paragraph_->getRectsForRange(
+        static_cast<unsigned>(start), static_cast<unsigned>(end), RectHeightStyle::kMax, RectWidthStyle::kTight);
+    result.reserve(boxes.size());
+    for (const TextBox& box : boxes) {
+        result.push_back(layout::Rect{box.rect.left(), box.rect.top(), box.rect.width(), box.rect.height()});
+    }
+    return result;
+}
+
+layout::Rect InlineContent::caretRect(size_t offset) {
+    ensureParagraph();
+    if (!paragraph_) {
+        return layout::Rect{};
+    }
+    const float height = paragraph_->getHeight();
+    // Empty paragraph: the caret sits at the start of the (still measured) line.
+    const size_t length = utf16Length();
+    if (length == 0) {
+        return layout::Rect{0.0f, 0.0f, 1.0f, height};
+    }
+    if (offset < length) {
+        const std::vector<layout::Rect> boxes = rectsForRange(offset, offset + 1);
+        if (!boxes.empty()) {
+            return layout::Rect{boxes.front().x, boxes.front().y, 1.0f, boxes.front().height};
+        }
+    }
+    // At (or past) the end: the right edge of the last glyph.
+    const std::vector<layout::Rect> boxes = rectsForRange(length - 1, length);
+    if (!boxes.empty()) {
+        return layout::Rect{boxes.back().right(), boxes.back().y, 1.0f, boxes.back().height};
+    }
+    return layout::Rect{0.0f, 0.0f, 1.0f, height};
+}
+
+size_t InlineContent::offsetAtPoint(float x, float y) {
+    ensureParagraph();
+    if (!paragraph_) {
+        return 0;
+    }
+    const PositionWithAffinity position = paragraph_->getGlyphPositionAtCoordinate(x, y);
+    return static_cast<size_t>(std::max(0, position.position));
+}
+
+size_t InlineContent::utf16Length() const {
+    // The paragraph counts in UTF-16 code units; the text is stored as UTF-8.
+    size_t units = 0;
+    for (size_t i = 0; i < text_.size();) {
+        const auto byte = static_cast<unsigned char>(text_[i]);
+        const size_t length = byte < 0x80 ? 1 : (byte & 0xE0) == 0xC0 ? 2 : (byte & 0xF0) == 0xE0 ? 3 : 4;
+        units += length == 4 ? 2 : 1;
+        i += length;
+    }
+    return units;
+}
+
 InlineContent::Size InlineContent::layout(float width) {
     ensureParagraph();
     if (!paragraph_) {

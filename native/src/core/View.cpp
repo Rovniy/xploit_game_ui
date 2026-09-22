@@ -6,6 +6,7 @@
 #include "dom/Element.h"
 #include "html/LexborHtmlParser.h"
 #include "js/v8/V8Runtime.h"
+#include "input/InputRouter.h"
 #include "layout/LayoutEngine.h"
 #include "paint/Painter.h"
 #include "text/FontManager.h"
@@ -34,6 +35,7 @@ View::View(ViewDesc desc)
 
 View::~View() {
     disposeJavaScript();
+    inputRouter_.reset();
     painter_.reset();
     layoutEngine_.reset();
     styleEngine_.reset();
@@ -100,6 +102,9 @@ dom::Document& View::ensureDocument() {
         styleEngine_ = std::make_unique<css::StyleEngine>(*document_);
         layoutEngine_ = std::make_unique<layout::LayoutEngine>(*document_);
         painter_ = std::make_unique<paint::Painter>(*document_, *layoutEngine_);
+        inputRouter_ = std::make_unique<input::InputRouter>(*document_, *layoutEngine_);
+        document_->setElementStateProvider(inputRouter_.get());
+        document_->setFocusController(inputRouter_.get());
     }
     return *document_;
 }
@@ -170,6 +175,13 @@ bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
     return true;
 }
 
+bool View::sendInput(const input::InputEvent& event) {
+    if (!inputRouter_) {
+        return false;
+    }
+    return inputRouter_->handle(event);
+}
+
 bool View::updateAndPaint() {
     if (!updateStyleAndLayout() || !painter_) {
         return false;
@@ -195,6 +207,7 @@ bool View::reload() {
     const std::string path = loadedPath_;
     disposeJavaScript();
     jsFailed_ = false;
+    inputRouter_.reset();
     painter_.reset();
     layoutEngine_.reset();
     styleEngine_.reset();

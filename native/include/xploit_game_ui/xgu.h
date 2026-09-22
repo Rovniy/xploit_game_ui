@@ -212,6 +212,78 @@ XGU_API xgu_status xgu_view_reload(xgu_view_id view);
 XGU_API xgu_status xgu_view_repaint(xgu_view_id view);
 
 /* -------------------------------------------------------------------------- */
+/* Input                                                                       */
+/* -------------------------------------------------------------------------- */
+
+typedef enum xgu_input_type {
+    XGU_INPUT_MOUSE_MOVE = 0,
+    XGU_INPUT_MOUSE_DOWN = 1,
+    XGU_INPUT_MOUSE_UP = 2,
+    XGU_INPUT_WHEEL = 3,
+    XGU_INPUT_POINTER_LEAVE = 4, /* the pointer left the view */
+    XGU_INPUT_KEY_DOWN = 5,
+    XGU_INPUT_KEY_UP = 6,
+    XGU_INPUT_TEXT = 7,          /* text the host composed, already final */
+    XGU_INPUT_TOUCH_BEGIN = 8,
+    XGU_INPUT_TOUCH_MOVE = 9,
+    XGU_INPUT_TOUCH_END = 10,
+    XGU_INPUT_WINDOW_BLUR = 11   /* the host window lost focus */
+} xgu_input_type;
+
+/* Mouse buttons, numbered as the DOM does. */
+typedef enum xgu_mouse_button {
+    XGU_BUTTON_NONE = -1,
+    XGU_BUTTON_LEFT = 0,
+    XGU_BUTTON_MIDDLE = 1,
+    XGU_BUTTON_RIGHT = 2
+} xgu_mouse_button;
+
+/* Bitmask of the buttons currently held, as MouseEvent.buttons reports it. */
+enum {
+    XGU_BUTTONS_LEFT = 1 << 0,
+    XGU_BUTTONS_RIGHT = 1 << 1,
+    XGU_BUTTONS_MIDDLE = 1 << 2
+};
+
+enum {
+    XGU_MOD_ALT = 1 << 0,
+    XGU_MOD_CTRL = 1 << 1,
+    XGU_MOD_SHIFT = 1 << 2,
+    XGU_MOD_META = 1 << 3
+};
+
+typedef struct xgu_input_event {
+    uint32_t struct_size;
+    xgu_input_type type;
+    /* Position in CSS pixels from the view's top-left. */
+    float x;
+    float y;
+    /* Wheel movement in CSS pixels (the host converts notches). */
+    float delta_x;
+    float delta_y;
+    int32_t button;   /* xgu_mouse_button */
+    uint32_t buttons; /* XGU_BUTTONS_* */
+    uint32_t modifiers; /* XGU_MOD_* */
+    /* Key events: `key` is the produced value ("a", "Enter", "ArrowLeft"),
+       `code` the physical key ("KeyA"). UTF-8, may be NULL. */
+    const char* key;
+    const char* code;
+    /* XGU_INPUT_TEXT: the UTF-8 text to insert. */
+    const char* text;
+    int32_t touch_id;
+    double time; /* seconds; used for double-click detection */
+    bool repeat;
+} xgu_input_event;
+
+/* Queues one input event for the view. Processed on the runtime thread, in
+   order, before the next frame. */
+XGU_API xgu_status xgu_view_send_input(xgu_view_id view, const xgu_input_event* event);
+
+/* Moves keyboard focus. Passing XGU_INVALID_VIEW-like empty `element_id` clears
+   it; otherwise the element with that id is focused when it can take focus. */
+XGU_API xgu_status xgu_view_set_focus(xgu_view_id view, const char* element_id);
+
+/* -------------------------------------------------------------------------- */
 /* JavaScript                                                                  */
 /* -------------------------------------------------------------------------- */
 

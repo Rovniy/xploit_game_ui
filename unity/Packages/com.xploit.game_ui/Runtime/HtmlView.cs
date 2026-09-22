@@ -305,6 +305,94 @@ namespace Xploit.GameUI
             }
         }
 
+        // ---- input ---------------------------------------------------------
+
+        /// <summary>
+        /// Sends one input event to the native view. Positions are CSS pixels
+        /// from the view's top-left. <see cref="WebInput"/> is the usual caller;
+        /// call this directly to feed input from your own source.
+        /// </summary>
+        public void SendInput(WebInputEvent input)
+        {
+            if (!IsCreated)
+            {
+                return;
+            }
+            // The native side copies the strings, so the allocations only need to
+            // survive this call.
+            var keyPtr = Native.Utf8(input.Key);
+            var codePtr = Native.Utf8(input.Code);
+            var textPtr = Native.Utf8(input.Text);
+            try
+            {
+                var evt = new Native.InputEvent
+                {
+                    StructSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.InputEvent>(),
+                    Type = (Native.InputType)input.Type,
+                    X = input.Position.x,
+                    Y = input.Position.y,
+                    DeltaX = input.Delta.x,
+                    DeltaY = input.Delta.y,
+                    Button = (int)input.Button,
+                    Buttons = (uint)input.Buttons,
+                    Modifiers = (uint)input.Modifiers,
+                    Key = keyPtr,
+                    Code = codePtr,
+                    Text = textPtr,
+                    TouchId = input.TouchId,
+                    Time = input.Time > 0.0 ? input.Time : Time.realtimeSinceStartupAsDouble,
+                    Repeat = input.Repeat,
+                };
+                var status = Native.xgu_view_send_input(m_handle, ref evt);
+                if (status != Native.Status.Ok)
+                {
+                    Debug.LogError($"[xploit_game_ui] SendInput({input.Type}) failed: {status}");
+                }
+            }
+            finally
+            {
+                if (keyPtr != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(keyPtr);
+                if (codePtr != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(codePtr);
+                if (textPtr != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(textPtr);
+            }
+        }
+
+        /// <summary>Moves keyboard focus to the element with this id; an empty id clears it.</summary>
+        public void SetFocus(string elementId)
+        {
+            if (IsCreated)
+            {
+                Native.xgu_view_set_focus(m_handle, elementId ?? string.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Converts a screen point to view coordinates in CSS pixels. Returns
+        /// false when the point is outside the view's rectangle.
+        /// </summary>
+        public bool ScreenToView(Vector2 screenPoint, Camera camera, out Vector2 viewPoint)
+        {
+            viewPoint = Vector2.zero;
+            var rect = transform as RectTransform;
+            if (rect == null)
+            {
+                return false;
+            }
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screenPoint, camera, out var local))
+            {
+                return false;
+            }
+            var size = rect.rect.size;
+            if (size.x <= 0f || size.y <= 0f)
+            {
+                return false;
+            }
+            // Local point is centred with y up; the view is top-left with y down.
+            var normalized = new Vector2((local.x - rect.rect.x) / size.x, 1f - (local.y - rect.rect.y) / size.y);
+            viewPoint = new Vector2(normalized.x * m_currentSize.x, normalized.y * m_currentSize.y) / DevicePixelRatio;
+            return normalized.x >= 0f && normalized.x <= 1f && normalized.y >= 0f && normalized.y <= 1f;
+        }
+
         // ---- public API (implemented in later stages) ----------------------
 
         /// <summary>
