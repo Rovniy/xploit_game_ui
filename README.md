@@ -31,9 +31,10 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 .\native\out\x64-windows-release\bin\xgu_host.exe --debug                            # окно с тестовым кадром Skia на D3D12 (Esc — выход)
 .\native\out\x64-windows-release\bin\xgu_host.exe --screenshot out.png --frames 3    # D3D12 без Unity: readback текстуры в PNG
 .\native\out\x64-windows-release\bin\xgu_cli.exe --test-frame out.png                # тот же кадр через CPU-провайдер
+.\native\out\x64-windows-release\bin\xgu_cli.exe js script.js                           # выполнить JS в V8 (console.* в stdout/stderr)
 ```
 
-Статус: Этапы 0–1 завершены (см. [docs/PLAN.md](docs/PLAN.md)). Следующий — Этап 2 (V8).
+Статус: Этапы 0–1 завершены, Этап 2 (V8) реализован в native и ждёт проверки в Unity (см. [docs/PLAN.md](docs/PLAN.md)).
 
 Тесты Unity (PlayMode, batchmode):
 
