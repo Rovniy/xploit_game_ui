@@ -2,6 +2,7 @@
 
 #include "core/AssetLoader.h"
 #include "core/RefCounted.h"
+#include "bridge/QueueBridge.h"
 #include "core/interfaces/IJavaScriptRuntime.h"
 #include "render/DisplayList.h"
 #include "render/FrameMailbox.h"
@@ -126,6 +127,12 @@ public:
     layout::LayoutEngine* layoutEngine() const { return layoutEngine_.get(); }
     input::InputRouter* inputRouter() const { return inputRouter_.get(); }
 
+    // Messages between this view's page and the host. Outlives the document, so
+    // the host can register handlers before anything is loaded.
+    IBridge& bridge() { return bridge_; }
+    // Hands the page everything the host queued. Runtime thread.
+    void pumpBridge();
+
     // Routes one host input event into the DOM. Returns true when the document
     // changed and a repaint is due.
     bool sendInput(const input::InputEvent& event);
@@ -172,6 +179,7 @@ private:
     std::unique_ptr<layout::LayoutEngine> layoutEngine_;
     std::unique_ptr<paint::Painter> painter_;
     std::unique_ptr<input::InputRouter> inputRouter_;
+    bridge::QueueBridge bridge_;
     std::unique_ptr<IAssetLoader> assetLoader_;
     std::string loadedPath_;
 

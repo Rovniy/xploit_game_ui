@@ -7,7 +7,9 @@
 #include "render/skia/TestFrame.h"
 
 #include <cstddef>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 using namespace xgu;
 
@@ -269,6 +271,64 @@ XGU_API xgu_status xgu_view_set_focus(xgu_view_id view, const char* element_id) 
     }
     return Runtime::instance().setFocus(static_cast<ViewId>(view), element_id ? element_id : "") ? XGU_OK
                                                                                                  : XGU_ERR_INVALID_VIEW;
+}
+
+namespace {
+
+// The strings a poll hands out have to outlive the call, so the last message is
+// kept here until the next poll on the same view.
+std::mutex g_polledMutex;
+std::unordered_map<xgu_view_id, BridgeMessage> g_polled;
+
+} // namespace
+
+XGU_API bool xgu_view_poll_message(xgu_view_id view, xgu_message* out_message) {
+    if (!Runtime::instance().initialized() || !out_message ||
+        out_message->struct_size < sizeof(xgu_message)) {
+        return false;
+    }
+    BridgeMessage message;
+    if (!Runtime::instance().pollMessage(static_cast<ViewId>(view), message)) {
+        return false;
+    }
+    std::lock_guard lock(g_polledMutex);
+    BridgeMessage& held = g_polled[view];
+    held = std::move(message);
+    out_message->kind = held.kind == BridgeMessageKind::Call ? XGU_MSG_CALL : XGU_MSG_EMIT;
+    out_message->id = held.id;
+    out_message->name = held.name.c_str();
+    out_message->json = held.json.empty() ? nullptr : held.json.c_str();
+    return true;
+}
+
+XGU_API xgu_status xgu_view_send_event(xgu_view_id view, const char* name, const char* json) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    if (!name || name[0] == 0) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    return Runtime::instance().sendEvent(static_cast<ViewId>(view), name, json ? json : "") ? XGU_OK
+                                                                                           : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_view_reply(xgu_view_id view, uint64_t id, bool ok, const char* json) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    if (id == 0) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    return Runtime::instance().reply(static_cast<ViewId>(view), id, ok, json ? json : "") ? XGU_OK
+                                                                                         : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API uint64_t xgu_view_bridge_dropped(xgu_view_id view) {
+    if (!Runtime::instance().initialized()) {
+        return 0;
+    }
+    View* resolved = Runtime::instance().views().resolve(static_cast<ViewId>(view));
+    return resolved ? static_cast<uint64_t>(resolved->bridge().droppedCount()) : 0;
 }
 
 XGU_API xgu_status xgu_view_repaint(xgu_view_id view) {

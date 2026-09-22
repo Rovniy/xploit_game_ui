@@ -129,6 +129,9 @@ namespace Xploit.GameUI
                 if (view != null && view.isActiveAndEnabled)
                 {
                     view.Tick();
+                    // Bridge messages run here so page handlers and Unity.call
+                    // implementations always see the main thread.
+                    view.PumpMessages();
                 }
             }
         }

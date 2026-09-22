@@ -48,6 +48,12 @@ public:
 
     // Queues one host input event for the view; handled on the runtime thread.
     bool sendInput(ViewId id, input::InputEvent event);
+
+    // --- bridge, called from the host's main thread --------------------------
+    bool sendEvent(ViewId id, std::string name, std::string json);
+    bool reply(ViewId id, uint64_t callId, bool ok, std::string json);
+    // Takes the next message the page queued; false when there is none.
+    bool pollMessage(ViewId id, BridgeMessage& out);
     // Focuses the element with `elementId`, or clears focus when it is empty.
     bool setFocus(ViewId id, std::string elementId);
     // Advances all views by one frame (JS message loop, later timers/rAF/layout).

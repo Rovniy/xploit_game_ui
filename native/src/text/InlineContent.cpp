@@ -76,8 +76,13 @@ TextAlign toTextAlign(css::TextAlign align) {
 }
 
 // Collects text runs from the inline descendants of `container`.
+// Walks the inline content, appending text and recording where each atomic
+// inline sits. The traversal must match LayoutEngine::collectAtomicInlines
+// exactly, because the Nth offset recorded here belongs to the Nth placeholder
+// that collected.
 void collectRuns(const dom::Node& node, const css::StyleValues& inheritedStyle, std::string& text,
-                 std::vector<std::pair<size_t, css::StyleValues>>& runStarts, bool& lastWasSpace) {
+                 std::vector<std::pair<size_t, css::StyleValues>>& runStarts, std::vector<size_t>& atomicOffsets,
+                 bool& lastWasSpace) {
     for (size_t i = 0; i < node.childCount(); ++i) {
         const dom::Node* child = node.childAt(i);
         if (child->isComment()) {
@@ -103,11 +108,14 @@ void collectRuns(const dom::Node& node, const css::StyleValues& inheritedStyle, 
         if (!style || style->display == css::Display::None) {
             continue;
         }
-        // Atomic inlines are represented by placeholders added by the caller.
         if (style->display != css::Display::Inline) {
+            // An atomic inline: remember where it belongs in the text so the
+            // paragraph can place its placeholder in document order.
+            atomicOffsets.push_back(text.size());
+            lastWasSpace = false; // a box is not collapsible white space
             continue;
         }
-        collectRuns(element, *style, text, runStarts, lastWasSpace);
+        collectRuns(element, *style, text, runStarts, atomicOffsets, lastWasSpace);
     }
 }
 
@@ -192,8 +200,9 @@ void InlineContent::build(const dom::Element& container, const css::ComputedStyl
     containerStyle_ = containerStyle;
 
     std::vector<std::pair<size_t, css::StyleValues>> runStarts;
+    std::vector<size_t> atomicOffsets;
     bool lastWasSpace = true; // leading white space of a block is dropped
-    collectRuns(container, containerStyle, text_, runStarts, lastWasSpace);
+    collectRuns(container, containerStyle, text_, runStarts, atomicOffsets, lastWasSpace);
 
     // Trailing collapsible space at the end of a block is dropped too.
     if (containerStyle.whiteSpace == css::WhiteSpace::Normal ||
@@ -213,6 +222,12 @@ void InlineContent::build(const dom::Element& container, const css::ComputedStyl
             runs_.push_back(Run{start, end - start, runStarts[i].second});
         }
     }
+
+    // Tie each placeholder to its position in the text; anything the walk did
+    // not see keeps the end of the paragraph.
+    for (size_t i = 0; i < placeholders_.size(); ++i) {
+        placeholders_[i].textOffset = i < atomicOffsets.size() ? atomicOffsets[i] : text_.size();
+    }
     invalidate();
 }
 
@@ -227,7 +242,17 @@ void InlineContent::setPlaceholderSizes(const std::vector<InlinePlaceholder>& si
     if (!changed) {
         return;
     }
-    placeholders_ = sizes;
+    // Only the measured size and the box change here; the text offset was
+    // recorded by build() and the caller does not know it.
+    const size_t common = std::min(sizes.size(), placeholders_.size());
+    std::vector<InlinePlaceholder> updated = sizes;
+    for (size_t i = 0; i < common; ++i) {
+        updated[i].textOffset = placeholders_[i].textOffset;
+    }
+    for (size_t i = common; i < updated.size(); ++i) {
+        updated[i].textOffset = text_.size();
+    }
+    placeholders_ = std::move(updated);
     invalidate();
 }
 
@@ -264,23 +289,32 @@ void InlineContent::ensureParagraph() {
         return;
     }
 
+    // Text and atomic inlines are emitted in document order, merged on the byte
+    // offset each placeholder recorded.
     size_t placeholderIndex = 0;
+    const auto emitPlaceholdersUpTo = [&](size_t offset) {
+        while (placeholderIndex < placeholders_.size() && placeholders_[placeholderIndex].textOffset <= offset) {
+            const InlinePlaceholder& placeholder = placeholders_[placeholderIndex];
+            PlaceholderStyle style(placeholder.width, placeholder.height, PlaceholderAlignment::kBaseline,
+                                   TextBaseline::kAlphabetic, 0.0f);
+            builder->addPlaceholder(style);
+            ++placeholderIndex;
+        }
+    };
+
     if (runs_.empty() && !text_.empty()) {
+        emitPlaceholdersUpTo(0);
         builder->pushStyle(toTextStyle(containerStyle_));
         builder->addText(text_.c_str(), text_.size());
         builder->pop();
     }
     for (const Run& run : runs_) {
+        emitPlaceholdersUpTo(run.start);
         builder->pushStyle(toTextStyle(run.style));
         builder->addText(text_.c_str() + run.start, run.length);
         builder->pop();
     }
-    for (; placeholderIndex < placeholders_.size(); ++placeholderIndex) {
-        const InlinePlaceholder& placeholder = placeholders_[placeholderIndex];
-        PlaceholderStyle style(placeholder.width, placeholder.height, PlaceholderAlignment::kBaseline,
-                               TextBaseline::kAlphabetic, 0.0f);
-        builder->addPlaceholder(style);
-    }
+    emitPlaceholdersUpTo(text_.size());
 
     paragraph_ = builder->Build();
     dirty_ = false;

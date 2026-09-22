@@ -283,6 +283,45 @@ namespace Xploit.GameUI
         public static extern Status xgu_view_set_focus(ulong view,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string elementId);
 
+        // ---- bridge --------------------------------------------------------
+
+        public enum MessageKind
+        {
+            Emit = 0,
+            Call = 1,
+        }
+
+        /// <summary>
+        /// Mirrors xgu_message. The two string pointers belong to the runtime and
+        /// stay valid only until the next poll on the same view, so the managed
+        /// side copies them straight away.
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Message
+        {
+            public uint StructSize;
+            public MessageKind Kind;
+            public ulong Id;
+            public IntPtr Name;
+            public IntPtr Json;
+        }
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool xgu_view_poll_message(ulong view, ref Message message);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_send_event(ulong view,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_reply(ulong view, ulong id, [MarshalAs(UnmanagedType.I1)] bool ok,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ulong xgu_view_bridge_dropped(ulong view);
+
         // ---- helpers -------------------------------------------------------
 
         public static string Version()

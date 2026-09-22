@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "core/View.h"
 #include "js/v8/DomBindings.h"
+#include "js/v8/UnityBindings.h"
 #include "js/v8/V8Platform.h"
 
 #include <libplatform/libplatform.h>
@@ -75,10 +76,12 @@ bool V8Runtime::initialize() {
     }
     context_.Reset(isolate_, context);
     dom_ = std::make_unique<DomBindings>(*this, isolate_);
+    unity_ = std::make_unique<UnityBindings>(*this, isolate_, view_.bridge());
     {
         // V8 bootstraps its own no-op `console`; replace it after context creation.
         v8::Context::Scope contextScope(context);
         installGlobals(context);
+        unity_->install(context);
     }
     XGU_LOG_DEBUG("view \"%s\": V8 isolate created", view_.desc().name.c_str());
     return true;
@@ -128,6 +131,12 @@ void V8Runtime::callFunction(v8::Local<v8::Function> function, v8::Local<v8::Val
     isolate_->PerformMicrotaskCheckpoint();
     if (tryCatch.HasCaught()) {
         reportException(tryCatch, context);
+    }
+}
+
+void V8Runtime::deliverBridgeMessage(const BridgeMessage& message) {
+    if (unity_) {
+        unity_->deliver(message);
     }
 }
 
@@ -204,11 +213,16 @@ void V8Runtime::dispose() {
     {
         v8::Isolate::Scope isolateScope(isolate_);
         v8::HandleScope handleScope(isolate_);
+        if (unity_) {
+            // Rejects the calls still in flight before the context goes away.
+            unity_->dispose();
+        }
         if (dom_) {
             dom_->dispose();
         }
         context_.Reset();
     }
+    unity_.reset();
     dom_.reset();
     isolate_->Dispose();
     isolate_ = nullptr;

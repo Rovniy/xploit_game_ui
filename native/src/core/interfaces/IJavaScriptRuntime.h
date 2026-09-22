@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/interfaces/IBridge.h"
+
 #include <functional>
 #include <memory>
 #include <string_view>
@@ -27,6 +29,10 @@ public:
     // Once per frame: pumps the engine's message loop and microtasks (timers and
     // requestAnimationFrame are layered on top in later stages).
     virtual void tick(double timeSeconds) = 0;
+
+    // Hands the page one message the host queued: a Send to deliver to the
+    // Unity.on listeners, or a Reply that settles a Unity.call promise.
+    virtual void deliverBridgeMessage(const BridgeMessage& message) = 0;
 
     // Releases every engine object. Safe to call twice.
     virtual void dispose() = 0;

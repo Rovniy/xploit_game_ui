@@ -284,6 +284,44 @@ XGU_API xgu_status xgu_view_send_input(xgu_view_id view, const xgu_input_event* 
 XGU_API xgu_status xgu_view_set_focus(xgu_view_id view, const char* element_id);
 
 /* -------------------------------------------------------------------------- */
+/* Bridge                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/* What the page sent. Only these two kinds travel page -> host. */
+typedef enum xgu_message_kind {
+    XGU_MSG_EMIT = 0, /* Unity.emit(name, ...args): no reply expected */
+    XGU_MSG_CALL = 1  /* Unity.call(name, ...args): answer with xgu_view_reply */
+} xgu_message_kind;
+
+typedef struct xgu_message {
+    uint32_t struct_size;
+    xgu_message_kind kind;
+    /* Correlates a call with its reply; zero for XGU_MSG_EMIT. */
+    uint64_t id;
+    /* UTF-8, owned by the runtime. Valid until the next xgu_view_poll_message
+       on the same view, so copy what you need before polling again. */
+    const char* name;
+    /* JSON array of arguments, or NULL when there are none. */
+    const char* json;
+} xgu_message;
+
+/* Takes the next message the page queued. Returns false when there is none.
+   Call from the host's main thread, once per frame until it returns false. */
+XGU_API bool xgu_view_poll_message(xgu_view_id view, xgu_message* out_message);
+
+/* Sends an event to the page: every handler registered with Unity.on(name, ...)
+   runs on the runtime thread. `json` is a JSON array of arguments (may be NULL). */
+XGU_API xgu_status xgu_view_send_event(xgu_view_id view, const char* name, const char* json);
+
+/* Answers an XGU_MSG_CALL. `ok` false rejects the page's promise, and `json`
+   should then be {"name":...,"message":...,"stack":...}. `json` is a single JSON
+   value (may be NULL for undefined). */
+XGU_API xgu_status xgu_view_reply(xgu_view_id view, uint64_t id, bool ok, const char* json);
+
+/* Messages dropped because a queue was full, since the view was created. */
+XGU_API uint64_t xgu_view_bridge_dropped(xgu_view_id view);
+
+/* -------------------------------------------------------------------------- */
 /* JavaScript                                                                  */
 /* -------------------------------------------------------------------------- */
 

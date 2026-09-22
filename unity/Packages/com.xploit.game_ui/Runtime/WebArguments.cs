@@ -1,28 +1,88 @@
+using System.Collections;
 using System.Collections.Generic;
 
 namespace Xploit.GameUI
 {
     /// <summary>
-    /// Arguments passed between JavaScript and C# (JSON array payload).
-    /// Stage 1 only carries the shape; parsing/serialisation arrives in Stage 7.
+    /// The arguments of one bridge message: what page script passed to
+    /// Unity.emit or Unity.call, or what the game passed to
+    /// <see cref="HtmlView.Send"/>.
+    ///
+    /// Indexing past the end returns <see cref="WebValue.Null"/> rather than
+    /// throwing, because the page is free to send fewer arguments than the
+    /// handler reads.
     /// </summary>
-    public sealed class WebArguments
+    public sealed class WebArguments : IEnumerable<WebValue>
     {
-        readonly List<object> m_values;
+        static readonly List<WebValue> Empty = new List<WebValue>();
 
-        public WebArguments() : this(new List<object>()) { }
+        readonly List<WebValue> m_values;
 
-        internal WebArguments(List<object> values)
+        public static readonly WebArguments None = new WebArguments(Empty);
+
+        internal WebArguments(List<WebValue> values)
         {
-            m_values = values ?? new List<object>();
+            m_values = values ?? Empty;
+        }
+
+        /// <summary>Builds the arguments from a parsed JSON array payload.</summary>
+        internal static WebArguments FromJson(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+            {
+                return None;
+            }
+            var parsed = WebJson.Parse(json);
+            if (parsed == null)
+            {
+                return None;
+            }
+            if (!parsed.IsArray)
+            {
+                return new WebArguments(new List<WebValue> { parsed });
+            }
+            return new WebArguments(new List<WebValue>(parsed.Items));
         }
 
         public int Count => m_values.Count;
 
-        public object this[int index] => m_values[index];
+        public WebValue this[int index] =>
+            index >= 0 && index < m_values.Count ? m_values[index] : WebValue.Null;
 
-        public T Get<T>(int index) => (T)System.Convert.ChangeType(m_values[index], typeof(T));
+        /// <summary>Argument <paramref name="index"/> as <typeparamref name="T"/>.</summary>
+        public T Get<T>(int index) => this[index].Get<T>();
 
-        public static WebArguments FromObjects(params object[] values) => new WebArguments(new List<object>(values ?? new object[0]));
+        /// <summary>Argument <paramref name="index"/> mapped onto a [Serializable] type.</summary>
+        public T GetObject<T>(int index) => this[index].GetObject<T>();
+
+        public string GetString(int index) => this[index].AsString;
+        public double GetNumber(int index) => this[index].AsNumber;
+        public int GetInt(int index) => (int)this[index].AsNumber;
+        public bool GetBool(int index) => this[index].AsBool;
+
+        /// <summary>The arguments as plain C# values (null, bool, double, string, List, Dictionary).</summary>
+        public object[] ToArray()
+        {
+            var result = new object[m_values.Count];
+            for (int i = 0; i < m_values.Count; i++)
+            {
+                result[i] = m_values[i].ToObject();
+            }
+            return result;
+        }
+
+        public IEnumerator<WebValue> GetEnumerator() => m_values.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public override string ToString()
+        {
+            var parts = new List<string>(m_values.Count);
+            foreach (var value in m_values)
+            {
+                parts.Add(value.ToJson());
+            }
+            return "[" + string.Join(", ", parts) + "]";
+        }
     }
 }

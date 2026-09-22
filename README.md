@@ -38,7 +38,7 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 
 Эталонные изображения golden-тестов перегенерируются переменной окружения `XGU_UPDATE_GOLDEN=1`; при расхождении тест пишет рядом `<имя>.actual.png` и `<имя>.diff.png`.
 
-Статус: Этапы 0–6 завершены (native 231/231, Unity PlayMode 26/26 на D3D12). Следующий — Этап 7: мост JavaScript ↔ C#. См. [docs/PLAN.md](docs/PLAN.md).
+Статус: Этапы 0–7 завершены (native 252/252, Unity PlayMode 39/39 на D3D12). Следующий — Этап 8: публичный API Unity и инспектор. См. [docs/PLAN.md](docs/PLAN.md).
 
 Тесты Unity (PlayMode, batchmode):
 
@@ -46,7 +46,7 @@ tools/    build.ps1 — сборка native и копирование DLL в п�
 & "C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Unity.exe" -batchmode -force-d3d12 -projectPath .\unity\Sandbox -runTests -testPlatform PlayMode -testResults .\build\test-results.xml -logFile .\build\editor.log
 ```
 
-## Использование в Unity (цель)
+## Использование в Unity
 
 ```csharp
 public class HUD : MonoBehaviour
@@ -56,9 +56,24 @@ public class HUD : MonoBehaviour
     void Start()
     {
         view.Load("UI/HUD/index.html");
-        view.On("inventory", e => OpenInventory());
+        // Страница вызывает Unity.emit("inventory")
+        view.On("inventory", e => OpenInventory(e.Args.GetString(0)));
+        // Страница ждёт await Unity.call("getAmmo")
+        view.RegisterFunction("getAmmo", _ => ammo);
     }
 
+    // Страница слушает Unity.on("healthChanged", ...)
     public void SetHealth(float health) => view.Send("healthChanged", health);
 }
 ```
+
+Со стороны страницы:
+
+```js
+document.getElementById("play").addEventListener("click", () => Unity.emit("play"));
+Unity.on("healthChanged", (value) => healthBar.style.width = value + "%");
+const ammo = await Unity.call("getAmmo");
+```
+
+Рабочий пример — сцена `Stage5_MainMenu` в `unity/Sandbox` вместе с
+`Assets/Scripts/MainMenuDemo.cs` и `Assets/StreamingAssets/UI/MainMenu/`.

@@ -1,9 +1,8 @@
-// Sandbox menu. Input and DOM events work from stage 6; the Unity bridge
-// (Unity.emit / Unity.on) arrives in stage 7, so it is used only when present.
+// The page half of the sandbox menu. Everything it knows about the game goes
+// through the bridge: it emits "play" and listens for "healthChanged".
 const playButton = document.getElementById("play");
 const healthFill = document.getElementById("health-fill");
 const healthValue = document.getElementById("health-value");
-const bridge = typeof Unity !== "undefined" ? Unity : null;
 
 function setHealth(value) {
   const clamped = Math.max(0, Math.min(100, value));
@@ -12,17 +11,15 @@ function setHealth(value) {
 }
 
 playButton.addEventListener("click", () => {
-  console.log("PLAY clicked");
-  if (bridge) {
-    bridge.emit("play");
-  } else {
-    // Until the bridge exists, show that input works by taking damage.
-    setHealth(parseInt(healthValue.textContent, 10) - 20);
-  }
+  Unity.emit("play");
 });
 
-if (bridge) {
-  bridge.on("healthChanged", setHealth);
-}
+Unity.on("healthChanged", setHealth);
+
+// Ask the game about itself. Nothing breaks when no handler is registered: the
+// promise rejects and the page simply says so.
+Unity.call("getBuildInfo")
+  .then((info) => console.log(`running on ${info.platform}, Unity ${info.unity}`))
+  .catch((error) => console.log(`no build info: ${error.message}`));
 
 console.log("MainMenu ready");

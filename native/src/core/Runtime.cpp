@@ -184,6 +184,60 @@ bool Runtime::sendInput(ViewId id, input::InputEvent event) {
     return true;
 }
 
+bool Runtime::sendEvent(ViewId id, std::string name, std::string json) {
+    View* view = views_.resolve(id);
+    if (!view) {
+        return false;
+    }
+    BridgeMessage message;
+    message.kind = BridgeMessageKind::Send;
+    message.name = std::move(name);
+    message.json = std::move(json);
+    if (!view->bridge().postToPage(std::move(message))) {
+        return false;
+    }
+    // Deliver on the runtime thread rather than waiting for the next tick, so a
+    // Send lands in the same frame the host made it.
+    thread_.post([this, id] {
+        if (View* target = views_.resolve(id)) {
+            target->pumpBridge();
+            if (target->updateAndPaint()) {
+                render_->paintIfCpu(*target);
+            }
+        }
+    });
+    return true;
+}
+
+bool Runtime::reply(ViewId id, uint64_t callId, bool ok, std::string json) {
+    View* view = views_.resolve(id);
+    if (!view) {
+        return false;
+    }
+    BridgeMessage message;
+    message.kind = BridgeMessageKind::Reply;
+    message.id = callId;
+    message.ok = ok;
+    message.json = std::move(json);
+    if (!view->bridge().postToPage(std::move(message))) {
+        return false;
+    }
+    thread_.post([this, id] {
+        if (View* target = views_.resolve(id)) {
+            target->pumpBridge();
+            if (target->updateAndPaint()) {
+                render_->paintIfCpu(*target);
+            }
+        }
+    });
+    return true;
+}
+
+bool Runtime::pollMessage(ViewId id, BridgeMessage& out) {
+    View* view = views_.resolve(id);
+    return view && view->bridge().pollFromPage(out);
+}
+
 bool Runtime::setFocus(ViewId id, std::string elementId) {
     if (!views_.resolve(id)) {
         return false;

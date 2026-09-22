@@ -227,6 +227,35 @@ TEST_F(PipelineTest, JavaScriptReadsAndWritesInlineStyle) {
     EXPECT_EQ(styleOf(view, "d")->backgroundColor, css::Color::rgba(255, 0, 0));
 }
 
+TEST_F(PipelineTest, AtomicInlinesKeepDocumentOrderInTheText) {
+    // Regression: placeholders used to be appended after every text run, so an
+    // inline-block that came first in the markup was laid out last.
+    write("UI/index.html", R"(<html><head><style>
+      html, body { margin: 0; font-size: 16px }
+      button { padding: 0; border: 0; width: 40px; height: 20px }
+    </style></head><body><button id="b">x</button><span id="s">tail</span></body></html>)");
+
+    const xgu_view_id view = createView();
+    ASSERT_EQ(xgu_view_load(view, "UI/index.html"), XGU_OK);
+
+    const layout::Rect button = frameOf(view, "b");
+    EXPECT_FLOAT_EQ(button.x, 0.0f) << "the button comes first in the markup";
+    EXPECT_FLOAT_EQ(button.width, 40.0f);
+}
+
+TEST_F(PipelineTest, TextBeforeAnAtomicInlineStaysBeforeIt) {
+    write("UI/index.html", R"(<html><head><style>
+      html, body { margin: 0; font-size: 16px }
+      button { padding: 0; border: 0; width: 40px; height: 20px }
+    </style></head><body><span>lead</span><button id="b">x</button></body></html>)");
+
+    const xgu_view_id view = createView();
+    ASSERT_EQ(xgu_view_load(view, "UI/index.html"), XGU_OK);
+
+    const layout::Rect button = frameOf(view, "b");
+    EXPECT_GT(button.x, 0.0f) << "the text pushes the button to the right";
+}
+
 TEST_F(PipelineTest, JavaScriptCanSetShorthandProperties) {
     // Shorthands have no PropertyId, so the style interceptor used to drop them
     // and "el.style.background = ..." silently did nothing.

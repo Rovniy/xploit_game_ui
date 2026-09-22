@@ -29,6 +29,9 @@ struct InlinePlaceholder {
     layout::LayoutBox* box = nullptr;
     float width = 0.0f;
     float height = 0.0f;
+    // Byte offset in the container's text where this box belongs, so the
+    // paragraph puts it in document order rather than at the end.
+    size_t textOffset = 0;
     // Filled after layout: position relative to the paragraph origin.
     float x = 0.0f;
     float y = 0.0f;

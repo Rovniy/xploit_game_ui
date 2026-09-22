@@ -175,6 +175,18 @@ bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
     return true;
 }
 
+void View::pumpBridge() {
+    IJavaScriptRuntime* js = javaScript();
+    if (!js || !js->ready()) {
+        return; // the messages stay queued until a document is running
+    }
+    std::vector<BridgeMessage> messages;
+    bridge_.drainToPage(messages);
+    for (const BridgeMessage& message : messages) {
+        js->deliverBridgeMessage(message);
+    }
+}
+
 bool View::sendInput(const input::InputEvent& event) {
     if (!inputRouter_) {
         return false;

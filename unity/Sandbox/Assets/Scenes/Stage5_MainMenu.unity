@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 331739280}
   - component: {fileID: 331739279}
   - component: {fileID: 331739282}
+  - component: {fileID: 331739283}
   m_Layer: 0
   m_Name: HtmlView
   m_TagString: Untagged
@@ -190,6 +191,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: Xploit.GameUI.Runtime::Xploit.GameUI.WebInput
   m_captureKeyboard: 1
   m_scrollScale: 100
+--- !u!114 &331739283
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 331739277}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 079e653455904a04f89ebcf8bc57892b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_health: 100
 --- !u!114 &331739280
 MonoBehaviour:
   m_ObjectHideFlags: 0

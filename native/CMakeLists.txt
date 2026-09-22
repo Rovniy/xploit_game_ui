@@ -75,6 +75,7 @@ target_link_libraries(xgu_skia INTERFACE d3d12 dxgi dxguid)
 # Core: interfaces, view registry, logging, runtime thread
 # ---------------------------------------------------------------------------
 add_library(xgu_core STATIC
+    src/bridge/QueueBridge.cpp
     src/core/Atom.cpp
     src/core/AssetLoader.cpp
     src/core/Log.cpp
@@ -142,7 +143,8 @@ target_link_libraries(xgu_render PUBLIC xgu_core xgu_skia)
 add_library(xgu_js STATIC
     src/js/v8/V8Platform.cpp
     src/js/v8/V8Runtime.cpp
-    src/js/v8/DomBindings.cpp)
+    src/js/v8/DomBindings.cpp
+    src/js/v8/UnityBindings.cpp)
 target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_v8)
 
 # ---------------------------------------------------------------------------
@@ -219,7 +221,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/PaintTest.cpp
         tests/unit/GoldenImageTest.cpp
         tests/unit/InputTest.cpp
-        tests/unit/TextControlTest.cpp)
+        tests/unit/TextControlTest.cpp
+        tests/unit/BridgeTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

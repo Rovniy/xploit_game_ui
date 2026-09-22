@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -494,13 +496,241 @@ namespace Xploit.GameUI
         /// <summary>Lifecycle state of the native view.</summary>
         public ViewState State => IsCreated ? Native.xgu_view_get_state(m_handle) : ViewState.Destroyed;
 
-        /// <summary>Sends an event to JavaScript: Unity.on(eventName, ...) (Stage 7).</summary>
-        public void Send(string eventName, params object[] args) => throw new NotImplementedException("HtmlView.Send arrives in Stage 7 (bridge).");
+        // ---- bridge --------------------------------------------------------
 
-        /// <summary>Subscribes to Unity.emit(eventName, ...) from JavaScript (Stage 7).</summary>
-        public void On(string eventName, Action<WebEvent> callback) => throw new NotImplementedException("HtmlView.On arrives in Stage 7 (bridge).");
+        readonly Dictionary<string, List<Action<WebEvent>>> m_eventHandlers =
+            new Dictionary<string, List<Action<WebEvent>>>();
+        readonly Dictionary<string, Func<WebArguments, object>> m_functions =
+            new Dictionary<string, Func<WebArguments, object>>();
+        readonly Dictionary<string, Func<WebArguments, Task<object>>> m_asyncFunctions =
+            new Dictionary<string, Func<WebArguments, Task<object>>>();
 
-        /// <summary>Registers a C# function callable through await Unity.call(name, ...) (Stage 7).</summary>
-        public void RegisterFunction(string name, Func<WebArguments, object> callback) => throw new NotImplementedException("HtmlView.RegisterFunction arrives in Stage 7 (bridge).");
+        /// <summary>
+        /// Sends an event to the page: every handler registered with
+        /// Unity.on(eventName, ...) runs with these arguments. Values are
+        /// serialised as JSON, so primitives, strings, arrays, dictionaries and
+        /// [Serializable] types all cross.
+        /// </summary>
+        public void Send(string eventName, params object[] args)
+        {
+            if (!IsCreated)
+            {
+                Debug.LogWarning($"[xploit_game_ui] Send on a view that is not created (\"{name}\")");
+                return;
+            }
+            if (string.IsNullOrEmpty(eventName))
+            {
+                Debug.LogError("[xploit_game_ui] Send: the event name is empty");
+                return;
+            }
+            var status = Native.xgu_view_send_event(m_handle, eventName, WebJson.SerializeArguments(args));
+            if (status != Native.Status.Ok)
+            {
+                Debug.LogError($"[xploit_game_ui] Send(\"{eventName}\") failed: {status}");
+            }
+        }
+
+        /// <summary>Subscribes to Unity.emit(eventName, ...) from page script.</summary>
+        public void On(string eventName, Action<WebEvent> callback)
+        {
+            if (string.IsNullOrEmpty(eventName) || callback == null)
+            {
+                return;
+            }
+            if (!m_eventHandlers.TryGetValue(eventName, out var handlers))
+            {
+                handlers = new List<Action<WebEvent>>();
+                m_eventHandlers[eventName] = handlers;
+            }
+            handlers.Add(callback);
+        }
+
+        /// <summary>
+        /// Removes one handler, or every handler for the event when
+        /// <paramref name="callback"/> is null.
+        /// </summary>
+        public void Off(string eventName, Action<WebEvent> callback = null)
+        {
+            if (string.IsNullOrEmpty(eventName) || !m_eventHandlers.TryGetValue(eventName, out var handlers))
+            {
+                return;
+            }
+            if (callback == null)
+            {
+                m_eventHandlers.Remove(eventName);
+                return;
+            }
+            handlers.Remove(callback);
+            if (handlers.Count == 0)
+            {
+                m_eventHandlers.Remove(eventName);
+            }
+        }
+
+        /// <summary>
+        /// Registers a function the page can await through Unity.call(name, ...).
+        /// The handler runs on Unity's main thread; whatever it returns becomes
+        /// the resolved value, and an exception rejects the page's promise.
+        /// </summary>
+        public void RegisterFunction(string name, Func<WebArguments, object> callback)
+        {
+            if (string.IsNullOrEmpty(name) || callback == null)
+            {
+                return;
+            }
+            m_asyncFunctions.Remove(name);
+            m_functions[name] = callback;
+        }
+
+        /// <summary>
+        /// Same as <see cref="RegisterFunction"/> for work that takes more than a
+        /// frame. The page's promise settles when the task does.
+        /// </summary>
+        public void RegisterFunctionAsync(string name, Func<WebArguments, Task<object>> callback)
+        {
+            if (string.IsNullOrEmpty(name) || callback == null)
+            {
+                return;
+            }
+            m_functions.Remove(name);
+            m_asyncFunctions[name] = callback;
+        }
+
+        public void UnregisterFunction(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return;
+            }
+            m_functions.Remove(name);
+            m_asyncFunctions.Remove(name);
+        }
+
+        /// <summary>Messages dropped because a bridge queue filled up.</summary>
+        public ulong BridgeDroppedCount => IsCreated ? Native.xgu_view_bridge_dropped(m_handle) : 0;
+
+        /// <summary>
+        /// Delivers everything the page queued. Called once a frame by
+        /// <see cref="HtmlViewManager"/>, on the main thread.
+        /// </summary>
+        internal void PumpMessages()
+        {
+            if (!IsCreated)
+            {
+                return;
+            }
+            var message = new Native.Message
+            {
+                StructSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.Message>(),
+            };
+            // A handler may call Send or even Load, so the loop re-reads the
+            // handle state every time.
+            while (IsCreated && Native.xgu_view_poll_message(m_handle, ref message))
+            {
+                var eventName = message.Name == IntPtr.Zero
+                    ? string.Empty
+                    : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(message.Name);
+                var json = message.Json == IntPtr.Zero
+                    ? null
+                    : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(message.Json);
+
+                if (message.Kind == Native.MessageKind.Emit)
+                {
+                    DispatchEmit(eventName, json);
+                }
+                else
+                {
+                    DispatchCall(message.Id, eventName, json);
+                }
+            }
+        }
+
+        void DispatchEmit(string eventName, string json)
+        {
+            if (!m_eventHandlers.TryGetValue(eventName, out var handlers) || handlers.Count == 0)
+            {
+                if (EnableDebug)
+                {
+                    Debug.Log($"[xploit_game_ui] no handler for Unity.emit(\"{eventName}\")");
+                }
+                return;
+            }
+            var webEvent = new WebEvent(eventName, WebArguments.FromJson(json), this);
+            // Copy: a handler may call Off while it runs.
+            foreach (var handler in handlers.ToArray())
+            {
+                try
+                {
+                    handler(webEvent);
+                }
+                catch (Exception error)
+                {
+                    // One bad handler must not stop the others or the frame.
+                    Debug.LogException(error, this);
+                }
+            }
+        }
+
+        void DispatchCall(ulong id, string functionName, string json)
+        {
+            var args = WebArguments.FromJson(json);
+            if (m_functions.TryGetValue(functionName, out var sync))
+            {
+                try
+                {
+                    Reply(id, true, WebJson.Serialize(sync(args)));
+                }
+                catch (Exception error)
+                {
+                    Reply(id, false, DescribeError(error));
+                    Debug.LogException(error, this);
+                }
+                return;
+            }
+            if (m_asyncFunctions.TryGetValue(functionName, out var async))
+            {
+                RunAsyncCall(id, functionName, async, args);
+                return;
+            }
+            Reply(id, false, WebJson.Serialize(new Dictionary<string, object>
+            {
+                { "name", "ReferenceError" },
+                { "message", $"no C# function is registered as \"{functionName}\"" },
+            }));
+        }
+
+        async void RunAsyncCall(ulong id, string functionName, Func<WebArguments, Task<object>> handler,
+            WebArguments args)
+        {
+            try
+            {
+                var result = await handler(args);
+                Reply(id, true, WebJson.Serialize(result));
+            }
+            catch (Exception error)
+            {
+                Reply(id, false, DescribeError(error));
+                Debug.LogError($"[xploit_game_ui] Unity.call(\"{functionName}\") failed: {error.Message}");
+            }
+        }
+
+        void Reply(ulong id, bool ok, string json)
+        {
+            if (!IsCreated)
+            {
+                return; // the view went away while the call was running
+            }
+            Native.xgu_view_reply(m_handle, id, ok, json);
+        }
+
+        static string DescribeError(Exception error)
+        {
+            return WebJson.Serialize(new Dictionary<string, object>
+            {
+                { "name", error.GetType().Name },
+                { "message", error.Message },
+                { "stack", error.StackTrace ?? string.Empty },
+            });
+        }
     }
 }

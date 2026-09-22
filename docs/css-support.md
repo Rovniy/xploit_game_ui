@@ -86,7 +86,7 @@
 | `console.log/warn/error/info/debug` → Unity Console | **готово** |
 | `element.focus()`, `element.blur()`, `document.activeElement` | **готово** |
 | `input`/`textarea`: `value`, `selectionStart`, `selectionEnd`, `setSelectionRange`, `select()` | **готово** |
-| `Unity.emit`, `Unity.on`, `Unity.off`, `Unity.call` (Promise) | план |
+| `Unity.emit`, `Unity.on`, `Unity.off`, `Unity.call` (Promise) | **готово** |
 | `fetch`, `XMLHttpRequest`, `localStorage`, `history`, `location`, ES-модули | не планируется / позже |
 
 ## События и ввод
@@ -125,3 +125,5 @@
 18. Порядок обхода по Tab не реализован: фокус ставится нажатием мыши, `element.focus()` или `xgu_view_set_focus`.
 19. Слушателем может быть только функция; объект с методом `handleEvent` не поддерживается. `AbortSignal` в опциях не поддерживается.
 20. `input` показывает значение одной строкой без прокрутки: текст длиннее поля обрезается по `overflow: hidden`, каретка за край не уводит содержимое.
+21. Аргументы моста проходят через JSON, поэтому действуют правила `JSON.stringify`: функции и `undefined` внутри массива становятся `null`, `NaN` и `Infinity` тоже, циклическая структура отклоняет вызов. Классы C# без атрибута `[Serializable]` сериализуются как `null`.
+22. Перечисления C# передаются в страницу строкой с именем значения, а не числом: сравнивать в JavaScript удобнее по имени.
