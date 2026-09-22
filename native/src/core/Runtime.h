@@ -38,6 +38,10 @@ public:
     void destroyAllViews();
     // Runs the script on the runtime thread; returns false for unknown views.
     bool executeJavaScript(ViewId id, std::string source, std::string origin);
+    // Document loading, also on the runtime thread.
+    bool loadDocument(ViewId id, std::string relativePath);
+    bool loadHtml(ViewId id, std::string html, std::string basePath);
+    bool reloadDocument(ViewId id);
     // Advances all views by one frame (JS message loop, later timers/rAF/layout).
     void tick(double timeSeconds);
 

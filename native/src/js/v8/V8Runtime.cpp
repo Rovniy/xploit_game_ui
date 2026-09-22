@@ -2,6 +2,7 @@
 
 #include "core/Log.h"
 #include "core/View.h"
+#include "js/v8/DomBindings.h"
 #include "js/v8/V8Platform.h"
 
 #include <libplatform/libplatform.h>
@@ -73,6 +74,7 @@ bool V8Runtime::initialize() {
         return false;
     }
     context_.Reset(isolate_, context);
+    dom_ = std::make_unique<DomBindings>(*this, isolate_);
     {
         // V8 bootstraps its own no-op `console`; replace it after context creation.
         v8::Context::Scope contextScope(context);
@@ -156,14 +158,34 @@ void V8Runtime::tick(double) {
     isolate_->PerformMicrotaskCheckpoint();
 }
 
+V8Runtime* V8Runtime::fromIsolate(v8::Isolate* isolate) {
+    return isolate ? static_cast<V8Runtime*>(isolate->GetData(kIsolateDataSlot)) : nullptr;
+}
+
+void V8Runtime::installDom(dom::Document& document) {
+    if (!isolate_ || !dom_) {
+        return;
+    }
+    v8::Isolate::Scope isolateScope(isolate_);
+    v8::HandleScope handleScope(isolate_);
+    v8::Local<v8::Context> context = context_.Get(isolate_);
+    v8::Context::Scope contextScope(context);
+    dom_->install(context, document);
+}
+
 void V8Runtime::dispose() {
     if (!isolate_) {
         return;
     }
     {
         v8::Isolate::Scope isolateScope(isolate_);
+        v8::HandleScope handleScope(isolate_);
+        if (dom_) {
+            dom_->dispose();
+        }
         context_.Reset();
     }
+    dom_.reset();
     isolate_->Dispose();
     isolate_ = nullptr;
     allocator_.reset();

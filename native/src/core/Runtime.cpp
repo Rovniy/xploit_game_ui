@@ -104,6 +104,42 @@ bool Runtime::executeJavaScript(ViewId id, std::string source, std::string origi
     return true;
 }
 
+bool Runtime::loadDocument(ViewId id, std::string relativePath) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id, relativePath = std::move(relativePath)] {
+        if (View* view = views_.resolve(id)) {
+            view->loadDocument(relativePath);
+        }
+    });
+    return true;
+}
+
+bool Runtime::loadHtml(ViewId id, std::string html, std::string basePath) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id, html = std::move(html), basePath = std::move(basePath)] {
+        if (View* view = views_.resolve(id)) {
+            view->loadHtml(html, basePath);
+        }
+    });
+    return true;
+}
+
+bool Runtime::reloadDocument(ViewId id) {
+    if (!views_.resolve(id)) {
+        return false;
+    }
+    thread_.post([this, id] {
+        if (View* view = views_.resolve(id)) {
+            view->reload();
+        }
+    });
+    return true;
+}
+
 void Runtime::tick(double timeSeconds) {
     if (!initialized_) {
         return;

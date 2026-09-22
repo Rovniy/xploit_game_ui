@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/AssetLoader.h"
+#include "core/RefCounted.h"
 #include "core/interfaces/IJavaScriptRuntime.h"
 #include "render/DisplayList.h"
 #include "render/FrameMailbox.h"
@@ -8,6 +10,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+
+namespace xgu::dom {
+class Document;
+}
 
 namespace xgu {
 
@@ -94,6 +100,19 @@ public:
     uint64_t nextFrameId() { return ++frameCounter_; }
 
     // --- runtime thread only -------------------------------------------------
+    // The document, created on first use. Never null after this call.
+    dom::Document& ensureDocument();
+    dom::Document* documentOrNull() const { return document_.get(); }
+    IAssetLoader* assetLoader() const { return assetLoader_.get(); }
+
+    // Loads an HTML document relative to the UI root ("UI/Menu/index.html"):
+    // reads it, parses it, exposes it to JavaScript and runs its <script> tags.
+    bool loadDocument(std::string_view relativePath);
+    // Same, for HTML that is already in memory; `baseRelative` anchors relative
+    // references (may be empty).
+    bool loadHtml(std::string_view html, std::string_view baseRelative);
+    bool reload();
+
     // Factory used to create the JavaScript runtime lazily (installed by Runtime).
     static void setJavaScriptRuntimeFactory(JavaScriptRuntimeFactory factory);
     // Returns the runtime, creating it on first use; nullptr when unavailable.
@@ -115,6 +134,11 @@ private:
     std::unique_ptr<ViewSurface> surface_;
     std::unique_ptr<IJavaScriptRuntime> js_;
     bool jsFailed_ = false;
+    RefPtr<dom::Document> document_;
+    std::unique_ptr<IAssetLoader> assetLoader_;
+    std::string loadedPath_;
+
+    void runDocumentScripts();
 };
 
 } // namespace xgu

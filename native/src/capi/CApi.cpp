@@ -191,6 +191,36 @@ XGU_API void xgu_view_release_pixels(xgu_view_id view) {
     withView(view, [&](View& v) { Runtime::instance().render().releasePixels(v); });
 }
 
+XGU_API xgu_status xgu_view_load(xgu_view_id view, const char* path) {
+    if (!path || path[0] == 0) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    return Runtime::instance().loadDocument(static_cast<ViewId>(view), std::string(path)) ? XGU_OK
+                                                                                          : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_view_load_html(xgu_view_id view, const char* html, const char* base_path) {
+    if (!html) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    const bool ok = Runtime::instance().loadHtml(static_cast<ViewId>(view), std::string(html),
+                                                 base_path ? std::string(base_path) : std::string());
+    return ok ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_view_reload(xgu_view_id view) {
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    return Runtime::instance().reloadDocument(static_cast<ViewId>(view)) ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
 XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, const char* origin) {
     if (!source) {
         return XGU_ERR_INVALID_ARGUMENT;

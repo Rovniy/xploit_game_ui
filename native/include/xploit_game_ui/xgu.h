@@ -190,6 +190,23 @@ XGU_API bool xgu_view_acquire_pixels(xgu_view_id view, const void** out_data, ui
 XGU_API void xgu_view_release_pixels(xgu_view_id view);
 
 /* -------------------------------------------------------------------------- */
+/* Documents                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/* Loads an HTML document. `path` is relative to the view's UI root
+   ("UI/MainMenu/index.html"); references that escape the root are rejected.
+   Runs asynchronously on the runtime thread; watch xgu_view_get_state. */
+XGU_API xgu_status xgu_view_load(xgu_view_id view, const char* path);
+
+/* Loads HTML held in memory. `base_path` (may be NULL) anchors relative
+   references such as <script src> and <img src>. */
+XGU_API xgu_status xgu_view_load_html(xgu_view_id view, const char* html, const char* base_path);
+
+/* Re-reads and re-runs the document last passed to xgu_view_load, with a fresh
+   JavaScript isolate. */
+XGU_API xgu_status xgu_view_reload(xgu_view_id view);
+
+/* -------------------------------------------------------------------------- */
 /* JavaScript                                                                  */
 /* -------------------------------------------------------------------------- */
 

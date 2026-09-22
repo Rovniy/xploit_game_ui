@@ -11,7 +11,13 @@ namespace xgu {
 class View;
 }
 
+namespace xgu::dom {
+class Document;
+}
+
 namespace xgu::js {
+
+class DomBindings;
 
 // One V8 isolate + context per view. Runtime thread only.
 class V8Runtime final : public IJavaScriptRuntime {
@@ -26,6 +32,13 @@ public:
     void dispose() override;
 
     v8::Isolate* isolate() const { return isolate_; }
+    DomBindings* domBindings() const { return dom_.get(); }
+
+    // Exposes `document` (and the DOM interfaces) for this view's document.
+    void installDom(dom::Document& document);
+
+    // The runtime that owns `isolate`, or nullptr.
+    static V8Runtime* fromIsolate(v8::Isolate* isolate);
 
     // Formats a JS value the way console.log does (strings raw, errors with stack,
     // objects as JSON, everything else via ToDetailString).
@@ -43,6 +56,7 @@ private:
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator_;
     v8::Isolate* isolate_ = nullptr;
     v8::Global<v8::Context> context_;
+    std::unique_ptr<DomBindings> dom_;
 };
 
 } // namespace xgu::js

@@ -4,17 +4,19 @@
 
 ## HTML-элементы
 
+Парсер (lexbor) понимает любой HTML5; таблица показывает, что движок отображает и стилизует. Статус «парсинг+DOM» означает, что элемент есть в дереве и доступен из JS, но ещё не рендерится.
+
 | Элемент | Статус | Примечания |
 |---|---|---|
-| `html`, `head`, `body` | план | |
-| `div`, `p`, `ul`, `li` | план | маркеры списков — позже |
-| `span`, `label` | план | `label for=` перенаправляет клик/фокус |
-| `img` | план | PNG/JPEG/WebP; intrinsic size; событие `load` |
-| `button` | план | inline-block, UA-стили, фокусируемый |
-| `input` | план | `type=text/password`; `placeholder`, `value`, `disabled`; события `input`, `change` |
-| `textarea` | план | многострочный, `pre-wrap` |
-| `script` | план | inline и `src`, порядок документа; `type="module"` — позже |
-| `link rel=stylesheet`, `style` | план | |
+| `html`, `head`, `body` | парсинг+DOM | |
+| `div`, `p`, `ul`, `li` | парсинг+DOM | маркеры списков — позже |
+| `span`, `label` | парсинг+DOM | `label for=` перенаправляет клик/фокус |
+| `img` | парсинг+DOM | PNG/JPEG/WebP; intrinsic size; событие `load` |
+| `button` | парсинг+DOM | inline-block, UA-стили, фокусируемый |
+| `input` | парсинг+DOM | `type=text/password`; `placeholder`, `value`, `disabled`; события `input`, `change` |
+| `textarea` | парсинг+DOM | многострочный, `pre-wrap` |
+| `script` | **готово** | inline и `src`, порядок документа; `type="module"` — позже |
+| `link rel=stylesheet`, `style` | парсинг+DOM | |
 | `table`, `select`, `canvas`, `video`, `iframe` | позже / не планируется | |
 
 ## CSS-свойства
@@ -47,22 +49,25 @@
 
 | Селектор | Статус |
 |---|---|
-| тип, `.class`, `#id`, `*` | план |
-| потомок (` `), ребёнок (`>`), соседи (`+`, `~`) | план |
-| атрибутные `[a]`, `[a=v]`, `[a~=v]`, `[a^=v]`, `[a$=v]`, `[a*=v]` | план |
-| `:hover`, `:active`, `:focus`, `:focus-within`, `:disabled`, `:checked` | план |
-| `:first-child`, `:last-child`, `:not()` | план |
+| тип, `.class`, `#id`, `*` | **готово** |
+| потомок (` `), ребёнок (`>`), соседи (`+`, `~`) | **готово** |
+| атрибутные `[a]`, `[a=v]`, `[a~=v]`, `[a\|=v]`, `[a^=v]`, `[a$=v]`, `[a*=v]`, флаг `i` | **готово** |
+| `:disabled`, `:enabled`, `:checked`, `:root`, `:empty` | **готово** |
+| `:hover`, `:active`, `:focus`, `:focus-within` | частично (разбираются и матчатся, но состояние приходит из ввода на Этапе 6 — сейчас всегда false) |
+| `:first-child`, `:last-child`, `:only-child`, `:not()` | **готово** |
 | `:nth-child()`, `::before`, `::after` | позже |
 
 ## DOM / JS API
 
 | API | Статус |
 |---|---|
-| `document.getElementById`, `querySelector`, `querySelectorAll`, `createElement`, `createTextNode` | план |
-| `Element`: `id`, `className`, `classList`, `getAttribute/setAttribute/removeAttribute`, `textContent`, `innerHTML`, `children`, `parentNode`, `appendChild`, `insertBefore`, `removeChild`, `style`, `getBoundingClientRect` | план |
+| `document.getElementById`, `querySelector`, `querySelectorAll`, `createElement`, `createTextNode`, `createComment` | **готово** |
+| `document.documentElement`, `head`, `body`, `title`, `URL`, `getElementsByClassName`, `getElementsByTagName` | **готово** |
+| `Element`: `id`, `className`, `classList` (add/remove/toggle/contains/item/length/value), `getAttribute/setAttribute/removeAttribute/hasAttribute`, `textContent`, `innerHTML`, `outerHTML`, `children`, `childNodes`, `parentNode`, `parentElement`, `firstChild`/`lastChild`/`nextSibling`/`previousSibling`, `appendChild`, `insertBefore`, `removeChild`, `remove`, `contains`, `matches`, `tagName`, `nodeType`, `nodeName`, `isConnected` | **готово** |
+| `Element.style`, `getBoundingClientRect` | план (Этап 4) |
 | `addEventListener`/`removeEventListener`, `Event` (`preventDefault`, `stopPropagation`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent` | план |
 | `setTimeout`/`setInterval`/`clear*`, `requestAnimationFrame`, `performance.now` | план |
-| `console.log/warn/error/info/debug` → Unity Console | план |
+| `console.log/warn/error/info/debug` → Unity Console | **готово** |
 | `Unity.emit`, `Unity.on`, `Unity.off`, `Unity.call` (Promise) | план |
 | `fetch`, `XMLHttpRequest`, `localStorage`, `history`, `location`, ES-модули | не планируется / позже |
 
@@ -75,3 +80,5 @@
 5. `overflow: hidden` обрезает и абсолютно позиционированных потомков.
 6. `display: block` реализован как column flex (Yoga): проценты высоты работают как в flex-контейнере.
 7. Маркеры списков (`list-style`) не рисуются.
+8. `childNodes`, `children`, `querySelectorAll` возвращают обычные JS-массивы, а не живые `NodeList`/`HTMLCollection`.
+9. `<script type="module">` не поддерживается (предупреждение в консоли); `document.write` отсутствует.

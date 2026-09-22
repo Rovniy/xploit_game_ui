@@ -31,6 +31,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # Dependencies (vcpkg manifest: native/vcpkg.json; V8 via NuGet)
 # ---------------------------------------------------------------------------
 find_package(unofficial-skia CONFIG REQUIRED)
+find_package(lexbor CONFIG REQUIRED)
 include(FetchV8Nuget) # -> xgu_v8, XGU_V8_RUNTIME_FILES, xgu_add_v8_runtime_copy()
 
 # ---------------------------------------------------------------------------
@@ -73,11 +74,28 @@ target_link_libraries(xgu_skia INTERFACE d3d12 dxgi dxguid)
 # Core: interfaces, view registry, logging, runtime thread
 # ---------------------------------------------------------------------------
 add_library(xgu_core STATIC
+    src/core/Atom.cpp
+    src/core/AssetLoader.cpp
     src/core/Log.cpp
-    src/core/View.cpp
     src/core/ViewRegistry.cpp
     src/core/RuntimeThread.cpp)
 target_link_libraries(xgu_core PUBLIC xgu_settings xgu_skia)
+
+# ---------------------------------------------------------------------------
+# DOM: own node tree, HTML parsing through lexbor, selector matching
+# ---------------------------------------------------------------------------
+# dom/, html/ and css/Selector* are mutually dependent (innerHTML parses, the
+# parser builds nodes, selectors inspect them), so they form one target.
+add_library(xgu_dom STATIC
+    src/dom/Node.cpp
+    src/dom/Element.cpp
+    src/dom/Document.cpp
+    src/dom/Serializer.cpp
+    src/html/HtmlTags.cpp
+    src/html/LexborHtmlParser.cpp
+    src/css/Selector.cpp
+    src/css/SelectorMatcher.cpp)
+target_link_libraries(xgu_dom PUBLIC xgu_core PRIVATE lexbor::lexbor_static)
 
 # ---------------------------------------------------------------------------
 # Render: Skia Ganesh D3D12 context, texture providers, test frame
@@ -95,15 +113,17 @@ target_link_libraries(xgu_render PUBLIC xgu_core xgu_skia)
 # ---------------------------------------------------------------------------
 add_library(xgu_js STATIC
     src/js/v8/V8Platform.cpp
-    src/js/v8/V8Runtime.cpp)
-target_link_libraries(xgu_js PUBLIC xgu_core xgu_v8)
+    src/js/v8/V8Runtime.cpp
+    src/js/v8/DomBindings.cpp)
+target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_v8)
 
 # ---------------------------------------------------------------------------
 # Runtime aggregate (process singleton wiring core + render + js)
 # ---------------------------------------------------------------------------
 add_library(xgu_runtime STATIC
-    src/core/Runtime.cpp)
-target_link_libraries(xgu_runtime PUBLIC xgu_core xgu_render xgu_js)
+    src/core/Runtime.cpp
+    src/core/View.cpp)
+target_link_libraries(xgu_runtime PUBLIC xgu_core xgu_dom xgu_render xgu_js)
 
 # The C ABI implementation is compiled into every host (DLL, tools, tests).
 set(XGU_CAPI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/capi/CApi.cpp)
@@ -157,7 +177,13 @@ if(XGU_BUILD_TESTS)
         tests/unit/CApiTest.cpp
         tests/unit/ViewRegistryTest.cpp
         tests/unit/TestFrameTest.cpp
-        tests/unit/V8RuntimeTest.cpp)
+        tests/unit/V8RuntimeTest.cpp
+        tests/unit/AtomTest.cpp
+        tests/unit/AssetLoaderTest.cpp
+        tests/unit/DomTest.cpp
+        tests/unit/HtmlParserTest.cpp
+        tests/unit/SelectorTest.cpp
+        tests/unit/DocumentLoadTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

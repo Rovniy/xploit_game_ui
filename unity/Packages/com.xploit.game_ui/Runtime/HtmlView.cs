@@ -31,6 +31,10 @@ namespace Xploit.GameUI
         [Tooltip("Stage 1: paint the built-in Skia test frame right after the view is created.")]
         [SerializeField] bool m_drawTestFrameOnEnable = true;
 
+        [Tooltip("Document to load on enable, relative to StreamingAssets (for example UI/MainMenu/index.html).")]
+        [SerializeField] string m_documentPath = "";
+
+        string m_loadedPath;
         ulong m_handle = Native.InvalidView;
         WebTexture m_webTexture;
         Material m_material;
@@ -86,6 +90,13 @@ namespace Xploit.GameUI
             set => m_drawTestFrameOnEnable = value;
         }
 
+        /// <summary>Document loaded automatically when the component is enabled (may be empty).</summary>
+        public string DocumentPath
+        {
+            get => m_documentPath;
+            set => m_documentPath = value;
+        }
+
         // ---- lifecycle -----------------------------------------------------
 
         void OnEnable()
@@ -106,6 +117,10 @@ namespace Xploit.GameUI
             if (m_drawTestFrameOnEnable && IsCreated)
             {
                 DrawTestFrame();
+            }
+            if (!string.IsNullOrEmpty(m_documentPath) && IsCreated)
+            {
+                Load(m_documentPath);
             }
         }
 
@@ -292,11 +307,63 @@ namespace Xploit.GameUI
 
         // ---- public API (implemented in later stages) ----------------------
 
-        /// <summary>Loads an HTML document relative to StreamingAssets (Stage 3).</summary>
-        public void Load(string path) => throw new NotImplementedException("HtmlView.Load arrives in Stage 3 (HTML/DOM).");
+        /// <summary>
+        /// Loads an HTML document. The path is relative to StreamingAssets, for
+        /// example "UI/MainMenu/index.html". Parsing and script execution happen
+        /// on the native runtime thread; watch <see cref="State"/> for progress.
+        /// References that would leave StreamingAssets are refused.
+        /// </summary>
+        public void Load(string path)
+        {
+            if (!IsCreated)
+            {
+                Debug.LogWarning($"[xploit_game_ui] Load on a view that is not created (\"{name}\")");
+                return;
+            }
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogError("[xploit_game_ui] Load: the path is empty");
+                return;
+            }
+            m_loadedPath = path;
+            var status = Native.xgu_view_load(m_handle, path);
+            if (status != Native.Status.Ok)
+            {
+                Debug.LogError($"[xploit_game_ui] Load(\"{path}\") failed: {status}");
+            }
+        }
 
-        /// <summary>Reloads the current document (Stage 3).</summary>
-        public void Reload() => throw new NotImplementedException("HtmlView.Reload arrives in Stage 3 (HTML/DOM).");
+        /// <summary>Loads HTML held in memory. <paramref name="basePath"/> anchors relative references.</summary>
+        public void LoadHtml(string html, string basePath = null)
+        {
+            if (!IsCreated || html == null)
+            {
+                return;
+            }
+            m_loadedPath = null;
+            var status = Native.xgu_view_load_html(m_handle, html, basePath ?? string.Empty);
+            if (status != Native.Status.Ok)
+            {
+                Debug.LogError($"[xploit_game_ui] LoadHtml failed: {status}");
+            }
+        }
+
+        /// <summary>Re-reads the document passed to <see cref="Load"/>, with a fresh JavaScript isolate.</summary>
+        public void Reload()
+        {
+            if (!IsCreated)
+            {
+                return;
+            }
+            var status = Native.xgu_view_reload(m_handle);
+            if (status != Native.Status.Ok)
+            {
+                Debug.LogError($"[xploit_game_ui] Reload failed: {status}");
+            }
+        }
+
+        /// <summary>Document passed to <see cref="Load"/>, or null.</summary>
+        public string LoadedPath => m_loadedPath;
 
         /// <summary>
         /// Compiles and runs JavaScript in this view's isolate (on the native runtime thread).

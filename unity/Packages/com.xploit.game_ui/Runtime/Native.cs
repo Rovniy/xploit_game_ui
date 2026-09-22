@@ -164,6 +164,19 @@ namespace Xploit.GameUI
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xgu_view_release_pixels(ulong view);
 
+        // ---- documents ------------------------------------------------------
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_load(ulong view, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_load_html(ulong view,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string html,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string basePath);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_reload(ulong view);
+
         // ---- JavaScript -----------------------------------------------------
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]

@@ -40,7 +40,7 @@ HTML ──lexbor──▶ DOM ──StyleEngine──▶ ComputedStyle ──La
 
 | Интерфейс | Реализация по умолчанию | Возможная замена |
 |---|---|---|
-| `IHtmlParser` | `html::LexborHtmlParser` | собственный HTML5-токенизатор, Gumbo |
+| `IHtmlParser` | `html::LexborHtmlParser` (реализован) | собственный HTML5-токенизатор, Gumbo |
 | `ICssEngine` (+ `ICssParser`) | `css::StyleEngine` + `css::LexborCssParser` | собственный токенизатор; Stylo |
 | `ILayoutEngine` | `layout::YogaLayoutEngine` | Taffy (grid), собственный block/inline/flex |
 | `IRenderer` | `paint::SkiaPainter` (display list) | собственный 2D-рендерер |
@@ -57,7 +57,7 @@ HTML ──lexbor──▶ DOM ──StyleEngine──▶ ComputedStyle ──La
 - **CSS:** `RuleSet` → `RuleIndex` (корзины по правому compound: id > class > tag > universal). Ключ каскада `(layer, important, specificity, order)`. `ComputedStyle` неизменяем и refcounted; diff с предыдущим решает, что инвалидировать.
 - **Layout:** `LayoutBox` ↔ `YGNodeRef`. Блок = column flex; инлайновое содержимое — анонимный IFC-бокс с measure/baseline функциями поверх `skia::textlayout::Paragraph`; атомарные инлайны — placeholders.
 - **Paint:** stacking contexts (корень, positioned с z-index, opacity < 1, transform). Порядок — упрощённое приложение E CSS 2.1.
-- **JS:** изолят на view; `FunctionTemplate` на интерфейс с цепочкой `Inherit`; обёртка узла strong пока узел подключён к документу и weak после отсоединения.
+- **JS:** изолят на view; `FunctionTemplate` на интерфейс с цепочкой `Inherit`. Время жизни обёрток: обёртка держит **сильную** ссылку на узел, а слот узла — **слабый** handle на обёртку. Цикл рвётся слабой стороной: как только JS отпускает обёртку, ссылка на узел освобождается; узел, оставшийся в дереве, жив через родителя.
 - **Мост:** `BridgeMessage{kind, id, level, ok, name, json}`; payload — JSON-строка, ядро её не разбирает.
 
 ## Ресурсы и безопасность

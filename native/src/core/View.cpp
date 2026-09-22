@@ -1,6 +1,12 @@
 #include "core/View.h"
 
 #include "core/Log.h"
+#include "dom/Document.h"
+#include "dom/Element.h"
+#include "html/LexborHtmlParser.h"
+#include "js/v8/V8Runtime.h"
+
+#include <vector>
 
 namespace xgu {
 namespace {
@@ -14,9 +20,16 @@ JavaScriptRuntimeFactory& jsFactory() {
 
 View::View(ViewDesc desc)
     : desc_(std::move(desc)), provider_(desc_.provider), width_(desc_.width), height_(desc_.height),
-      dpr_(desc_.devicePixelRatio) {}
+      dpr_(desc_.devicePixelRatio) {
+    if (!desc_.uiRoot.empty()) {
+        assetLoader_ = std::make_unique<FileAssetLoader>(desc_.uiRoot);
+    }
+}
 
-View::~View() { disposeJavaScript(); }
+View::~View() {
+    disposeJavaScript();
+    document_.reset();
+}
 
 void View::requestResize(uint32_t width, uint32_t height, float dpr) {
     width_.store(width, std::memory_order_release);
@@ -54,6 +67,10 @@ IJavaScriptRuntime* View::ensureJavaScript() {
         jsFailed_ = true;
         return nullptr;
     }
+    // Every isolate starts with `document` bound to this view's document.
+    if (auto* v8Runtime = dynamic_cast<js::V8Runtime*>(js_.get())) {
+        v8Runtime->installDom(ensureDocument());
+    }
     if (state() == ViewState::Created) {
         setState(ViewState::JsReady);
     }
@@ -64,6 +81,134 @@ void View::disposeJavaScript() {
     if (js_) {
         js_->dispose();
         js_.reset();
+    }
+}
+
+dom::Document& View::ensureDocument() {
+    if (!document_) {
+        document_ = makeRef<dom::Document>();
+        document_->setAssetLoader(assetLoader_.get());
+    }
+    return *document_;
+}
+
+bool View::loadDocument(std::string_view relativePath) {
+    if (!assetLoader_) {
+        XGU_LOG_ERROR("view \"%s\": no UI root configured; cannot load \"%.*s\"", desc_.name.c_str(),
+                      static_cast<int>(relativePath.size()), relativePath.data());
+        return false;
+    }
+    // The path is relative to the UI root, so resolve it against the root itself.
+    const std::optional<std::string> resolved = assetLoader_->resolve({}, relativePath);
+    if (!resolved) {
+        XGU_LOG_ERROR("view \"%s\": load of \"%.*s\" was rejected (outside the UI root)", desc_.name.c_str(),
+                      static_cast<int>(relativePath.size()), relativePath.data());
+        return false;
+    }
+    const std::optional<std::string> html = assetLoader_->read(*resolved);
+    if (!html) {
+        XGU_LOG_ERROR("view \"%s\": cannot read \"%s\" under %s", desc_.name.c_str(), resolved->c_str(),
+                      assetLoader_->root().c_str());
+        return false;
+    }
+    loadedPath_ = *resolved;
+    return loadHtml(*html, *resolved);
+}
+
+bool View::loadHtml(std::string_view html, std::string_view baseRelative) {
+    setState(ViewState::Loading);
+    dom::Document& document = ensureDocument();
+    document.setUrl(std::string(baseRelative));
+
+    html::LexborHtmlParser parser;
+    if (!parser.parseDocument(html, document)) {
+        XGU_LOG_ERROR("view \"%s\": failed to parse \"%.*s\"", desc_.name.c_str(),
+                      static_cast<int>(baseRelative.size()), baseRelative.data());
+        return false;
+    }
+    setState(ViewState::DomReady);
+    XGU_LOG_DEBUG("view \"%s\": DOM ready (%.*s)", desc_.name.c_str(), static_cast<int>(baseRelative.size()),
+                  baseRelative.data());
+
+    // Creating the runtime also binds `document`.
+    if (ensureJavaScript()) {
+        runDocumentScripts();
+    }
+    setState(ViewState::JsReady);
+    return true;
+}
+
+bool View::reload() {
+    if (loadedPath_.empty()) {
+        return false;
+    }
+    // A reload starts from a clean isolate: scripts must not see old globals.
+    const std::string path = loadedPath_;
+    disposeJavaScript();
+    jsFailed_ = false;
+    document_.reset();
+    return loadDocument(path);
+}
+
+void View::runDocumentScripts() {
+    dom::Document* document = document_.get();
+    if (!document || !js_) {
+        return;
+    }
+    // Collect first: running a script may mutate the tree.
+    struct PendingScript {
+        std::string source;
+        std::string origin;
+    };
+    std::vector<PendingScript> scripts;
+    const Atom srcAttribute("src");
+    const Atom typeAttribute("type");
+
+    for (dom::Node* node = document; node; node = dom::nextInTreeOrder(node, document)) {
+        if (!node->isElement()) {
+            continue;
+        }
+        auto& element = static_cast<dom::Element&>(*node);
+        if (element.knownTag() != html::HtmlTag::Script) {
+            continue;
+        }
+        if (const std::string* type = element.getAttribute(typeAttribute)) {
+            const Atom typeAtom(*type);
+            if (!type->empty() && !typeAtom.equalsIgnoringCase("text/javascript") &&
+                !typeAtom.equalsIgnoringCase("application/javascript")) {
+                if (typeAtom.equalsIgnoringCase("module")) {
+                    XGU_LOG_WARNING("view \"%s\": <script type=\"module\"> is not supported yet; skipped",
+                                    desc_.name.c_str());
+                }
+                continue;
+            }
+        }
+        if (const std::string* src = element.getAttribute(srcAttribute)) {
+            if (!assetLoader_) {
+                XGU_LOG_ERROR("view \"%s\": <script src> needs a UI root", desc_.name.c_str());
+                continue;
+            }
+            const std::optional<std::string> resolved = assetLoader_->resolve(document->url(), *src);
+            if (!resolved) {
+                XGU_LOG_ERROR("view \"%s\": <script src=\"%s\"> was rejected", desc_.name.c_str(), src->c_str());
+                continue;
+            }
+            const std::optional<std::string> source = assetLoader_->read(*resolved);
+            if (!source) {
+                XGU_LOG_ERROR("view \"%s\": cannot read script \"%s\"", desc_.name.c_str(), resolved->c_str());
+                continue;
+            }
+            scripts.push_back(PendingScript{*source, *resolved});
+        } else {
+            std::string source = element.textContent();
+            if (!source.empty()) {
+                scripts.push_back(PendingScript{std::move(source), document->url() + " (inline)"});
+            }
+        }
+    }
+
+    for (const PendingScript& script : scripts) {
+        js_->evaluate(script.source, script.origin);
     }
 }
 
