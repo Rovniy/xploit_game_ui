@@ -93,7 +93,15 @@ jobs:
           for what the engine does and does not do.
           "@
 
-          gh release create $tag --draft --title "v$version" --notes $notes --generate-notes
+          # A re-run, or a tag whose release someone already opened by hand, must
+          # update that release rather than fail on a name clash.
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::notice::Release $tag already exists; updating it instead of creating it."
+            gh release edit $tag --title "v$version" --notes $notes
+          } else {
+            gh release create $tag --draft --title "v$version" --notes $notes --generate-notes
+          }
 
           if ('${{ steps.package.outputs.packaged }}' -eq 'true') {
             gh release upload $tag (Get-ChildItem dist/*.tgz, dist/*.zip).FullName --clobber
