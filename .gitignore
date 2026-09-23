@@ -48,6 +48,5 @@ dist/
 # The stage-by-stage working plan is kept outside the public repository.
 docs/PLAN.md
 
-# Blog drafts: personal writing, and Russian, so they stay out of the
-# English-only public repository.
-blog-*.ru.md
+# Blog drafts: personal writing rather than project documentation.
+blog-*.md
