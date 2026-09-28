@@ -142,15 +142,25 @@ target_link_libraries(xgu_render PUBLIC xgu_core xgu_skia)
 # ---------------------------------------------------------------------------
 # JavaScript: V8 platform + per-view runtime
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# DevTools: the local Chrome DevTools endpoint and the session hub
+# ---------------------------------------------------------------------------
+add_library(xgu_devtools STATIC
+    src/devtools/WebSocket.cpp
+    src/devtools/DevToolsHub.cpp
+    src/devtools/DevToolsServer.cpp)
+target_link_libraries(xgu_devtools PUBLIC xgu_core PRIVATE ws2_32)
+
 add_library(xgu_js STATIC
     src/js/v8/V8Platform.cpp
+    src/js/v8/Inspector.cpp
     src/js/v8/V8Runtime.cpp
     src/js/v8/DomBindings.cpp
     src/js/v8/Timers.cpp
     src/js/v8/UnityBindings.cpp)
 # The DOM bindings read box geometry for getBoundingClientRect and the scroll
 # properties, so they need the layout tree.
-target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_layout xgu_v8)
+target_link_libraries(xgu_js PUBLIC xgu_core xgu_dom xgu_layout xgu_devtools xgu_v8)
 
 # ---------------------------------------------------------------------------
 # Runtime aggregate (process singleton wiring core + render + js)
@@ -240,7 +250,8 @@ if(XGU_BUILD_TESTS)
         tests/unit/ScrollTest.cpp
         tests/unit/GradientTest.cpp
         tests/unit/AnimationTest.cpp
-        tests/unit/DamageTest.cpp)
+        tests/unit/DamageTest.cpp
+        tests/unit/DevToolsTest.cpp)
     target_compile_definitions(xgu_tests PRIVATE
         XGU_STATIC
         XGU_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

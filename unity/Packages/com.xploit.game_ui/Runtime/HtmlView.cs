@@ -30,6 +30,18 @@ namespace Xploit.GameUI
         [Tooltip("RawImage that displays the view texture (optional; defaults to a RawImage on this GameObject).")]
         [SerializeField] RawImage m_targetImage;
 
+        [Tooltip("Mesh that shows the view texture in the world (optional; defaults to a Renderer on this GameObject " +
+                 "when there is no RawImage). Its size in pixels comes from Size.")]
+        [SerializeField] Renderer m_targetRenderer;
+
+        [Tooltip("Keep the Renderer's own material and only set its texture. Off: the view draws with the built-in " +
+                 "unlit premultiplied shader.")]
+        [SerializeField] bool m_keepRendererMaterial;
+
+        [Tooltip("Texture property the view texture goes into when the Renderer keeps its own material " +
+                 "(_MainTex for most shaders, _BaseMap for URP).")]
+        [SerializeField] string m_rendererTextureProperty = "_MainTex";
+
         [Tooltip("Stage 1: paint the built-in Skia test frame right after the view is created.")]
         [SerializeField] bool m_drawTestFrameOnEnable = true;
 
@@ -40,6 +52,12 @@ namespace Xploit.GameUI
         ulong m_handle = Native.InvalidView;
         WebTexture m_webTexture;
         Material m_material;
+        Material m_worldMaterial;
+        MaterialPropertyBlock m_propertyBlock;
+        Texture m_rendererTexture;
+        Material m_originalMaterial;
+        bool m_replacedMaterial;
+        Vector2 m_lastWorldPoint;
         Vector2Int m_currentSize;
         HtmlViewManager m_manager;
 
@@ -86,6 +104,46 @@ namespace Xploit.GameUI
             set => m_targetImage = value;
         }
 
+        /// <summary>
+        /// Renderer that shows the view on a mesh. Pointer input reaches it through
+        /// a <see cref="WebInput"/> on this GameObject, a Collider and a
+        /// PhysicsRaycaster on the camera.
+        /// </summary>
+        public Renderer TargetRenderer
+        {
+            get => m_targetRenderer;
+            set
+            {
+                if (m_targetRenderer == value)
+                {
+                    return;
+                }
+                ClearRenderer();
+                m_targetRenderer = value;
+            }
+        }
+
+        /// <summary>Keep the Renderer's material and only set <see cref="RendererTextureProperty"/> on it.</summary>
+        public bool KeepRendererMaterial
+        {
+            get => m_keepRendererMaterial;
+            set
+            {
+                ClearRenderer();
+                m_keepRendererMaterial = value;
+            }
+        }
+
+        public string RendererTextureProperty
+        {
+            get => m_rendererTextureProperty;
+            set
+            {
+                ClearRenderer();
+                m_rendererTextureProperty = value;
+            }
+        }
+
         public bool DrawTestFrameOnEnable
         {
             get => m_drawTestFrameOnEnable;
@@ -113,6 +171,10 @@ namespace Xploit.GameUI
             if (m_targetImage == null)
             {
                 m_targetImage = GetComponent<RawImage>();
+            }
+            if (m_targetImage == null && m_targetRenderer == null)
+            {
+                m_targetRenderer = GetComponent<Renderer>();
             }
             CreateNativeView();
             m_manager.Register(this);
@@ -185,6 +247,8 @@ namespace Xploit.GameUI
             {
                 m_targetImage.texture = null;
             }
+            ClearRenderer();
+            WebDevTools.CancelFor(m_handle);
             m_webTexture?.Dispose();
             m_webTexture = null;
             if (m_handle != Native.InvalidView)
@@ -230,6 +294,57 @@ namespace Xploit.GameUI
                 m_targetImage.texture = m_webTexture.Texture;
                 m_targetImage.material = m_material;
             }
+            if (m_targetRenderer != null && m_rendererTexture != m_webTexture.Texture)
+            {
+                ApplyRenderer(m_webTexture.Texture);
+            }
+        }
+
+        // The texture goes in through a property block, so a shared material is
+        // never modified and several views can use the same one.
+        void ApplyRenderer(Texture texture)
+        {
+            var property = m_keepRendererMaterial && !string.IsNullOrEmpty(m_rendererTextureProperty)
+                ? m_rendererTextureProperty
+                : "_MainTex";
+            if (!m_keepRendererMaterial)
+            {
+                EnsureWorldMaterial();
+                if (texture != null && m_worldMaterial != null && m_targetRenderer.sharedMaterial != m_worldMaterial)
+                {
+                    m_originalMaterial = m_targetRenderer.sharedMaterial;
+                    m_replacedMaterial = true;
+                    m_targetRenderer.sharedMaterial = m_worldMaterial;
+                }
+            }
+            m_propertyBlock ??= new MaterialPropertyBlock();
+            m_targetRenderer.GetPropertyBlock(m_propertyBlock);
+            if (texture != null)
+            {
+                m_propertyBlock.SetTexture(property, texture);
+            }
+            else
+            {
+                m_propertyBlock.Clear();
+            }
+            m_targetRenderer.SetPropertyBlock(m_propertyBlock);
+            m_rendererTexture = texture;
+        }
+
+        // Gives the Renderer back as it was: no texture, its own material.
+        void ClearRenderer()
+        {
+            if (m_targetRenderer != null && m_rendererTexture != null)
+            {
+                ApplyRenderer(null);
+            }
+            if (m_targetRenderer != null && m_replacedMaterial && m_targetRenderer.sharedMaterial == m_worldMaterial)
+            {
+                m_targetRenderer.sharedMaterial = m_originalMaterial;
+            }
+            m_replacedMaterial = false;
+            m_originalMaterial = null;
+            m_rendererTexture = null;
         }
 
         Vector2Int ResolveSize()
@@ -283,12 +398,33 @@ namespace Xploit.GameUI
             m_material = new Material(shader) { name = "xploit_game_ui premultiplied", hideFlags = HideFlags.HideAndDontSave };
         }
 
+        void EnsureWorldMaterial()
+        {
+            if (m_worldMaterial != null)
+            {
+                return;
+            }
+            var shader = Shader.Find("XploitGameUI/WorldPremultiplied");
+            if (shader == null)
+            {
+                Debug.LogWarning("[xploit_game_ui] shader XploitGameUI/WorldPremultiplied not found; the mesh keeps its material");
+                return;
+            }
+            m_worldMaterial = new Material(shader) { name = "xploit_game_ui world", hideFlags = HideFlags.HideAndDontSave };
+        }
+
         void OnDestroy()
         {
             if (m_material != null)
             {
                 if (Application.isPlaying) Destroy(m_material); else DestroyImmediate(m_material);
                 m_material = null;
+            }
+            ClearRenderer();
+            if (m_worldMaterial != null)
+            {
+                if (Application.isPlaying) Destroy(m_worldMaterial); else DestroyImmediate(m_worldMaterial);
+                m_worldMaterial = null;
             }
         }
 
@@ -379,7 +515,12 @@ namespace Xploit.GameUI
             var rect = transform as RectTransform;
             if (rect == null)
             {
-                return false;
+                // A view on a mesh: cast the ray through the point at its collider.
+                if (camera == null)
+                {
+                    camera = Camera.main;
+                }
+                return camera != null && RayToView(camera.ScreenPointToRay(screenPoint), out viewPoint);
             }
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screenPoint, camera, out var local))
             {
@@ -394,6 +535,48 @@ namespace Xploit.GameUI
             var normalized = new Vector2((local.x - rect.rect.x) / size.x, 1f - (local.y - rect.rect.y) / size.y);
             viewPoint = new Vector2(normalized.x * m_currentSize.x, normalized.y * m_currentSize.y) / DevicePixelRatio;
             return normalized.x >= 0f && normalized.x <= 1f && normalized.y >= 0f && normalized.y <= 1f;
+        }
+
+        /// <summary>
+        /// Maps a world ray to view coordinates (CSS pixels from the top-left)
+        /// through the Collider on this GameObject. Only this collider is tested:
+        /// what is in front of it is the EventSystem's business. When the ray
+        /// misses, <paramref name="viewPoint"/> is the last point that hit, so a
+        /// drag that leaves the mesh keeps a sensible position.
+        /// </summary>
+        public bool RayToView(Ray ray, out Vector2 viewPoint)
+        {
+            viewPoint = m_lastWorldPoint;
+            var collider = GetComponent<Collider>();
+            if (collider == null || !collider.Raycast(ray, out var hit, float.PositiveInfinity))
+            {
+                return false;
+            }
+            return HitToView(hit, out viewPoint);
+        }
+
+        /// <summary>
+        /// Maps a raycast hit on this GameObject's collider to view coordinates.
+        /// A non-convex MeshCollider gives the texture coordinate of the hit, which
+        /// works for any mesh with UVs. Any other collider is treated as a quad in the local
+        /// XY plane from -0.5 to 0.5, which is what Unity's Quad primitive is.
+        /// </summary>
+        public bool HitToView(RaycastHit hit, out Vector2 viewPoint)
+        {
+            Vector2 uv;
+            if (hit.collider is MeshCollider meshCollider && meshCollider.sharedMesh != null && !meshCollider.convex)
+            {
+                uv = hit.textureCoord;
+            }
+            else
+            {
+                var local = transform.InverseTransformPoint(hit.point);
+                uv = new Vector2(local.x + 0.5f, local.y + 0.5f);
+            }
+            // UV has v up; the view is top-left with y down.
+            viewPoint = new Vector2(uv.x * m_currentSize.x, (1f - uv.y) * m_currentSize.y) / DevicePixelRatio;
+            m_lastWorldPoint = viewPoint;
+            return uv.x >= 0f && uv.x <= 1f && uv.y >= 0f && uv.y <= 1f;
         }
 
         // ---- public API (implemented in later stages) ----------------------
@@ -479,6 +662,49 @@ namespace Xploit.GameUI
             if (status != Native.Status.Ok)
             {
                 Debug.LogError($"[xploit_game_ui] ExecuteJS failed: {status}");
+            }
+        }
+
+        /// <summary>
+        /// Evaluates an expression in the page the way the DevTools console does:
+        /// the value comes back formatted ("{a: 1}", "[1, 2]", "'text'"), a
+        /// promise is awaited, `let` can be declared again, and $0-style console
+        /// helpers are there. It does not echo to the Unity Console.
+        /// </summary>
+        public Task<WebEvalResult> EvaluateAsync(string expression)
+        {
+            if (!IsCreated)
+            {
+                return Task.FromResult(new WebEvalResult(false, "the view is not created"));
+            }
+            return WebDevTools.Evaluate(this, expression ?? string.Empty);
+        }
+
+        /// <summary>
+        /// devtools:// URL that opens Chrome DevTools on this view, or null while
+        /// <see cref="WebDevTools"/> is not running. Paste it into Chrome's
+        /// address bar, or use chrome://inspect.
+        /// </summary>
+        public string DevToolsUrl
+        {
+            get
+            {
+                if (!IsCreated)
+                {
+                    return null;
+                }
+                var buffer = new byte[512];
+                var length = Native.xgu_view_devtools_url(m_handle, buffer, (uint)buffer.Length);
+                if (length == 0)
+                {
+                    return null;
+                }
+                if (length >= buffer.Length)
+                {
+                    buffer = new byte[length + 1];
+                    Native.xgu_view_devtools_url(m_handle, buffer, (uint)buffer.Length);
+                }
+                return System.Text.Encoding.UTF8.GetString(buffer, 0, (int)length);
             }
         }
 

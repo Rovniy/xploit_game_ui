@@ -2,7 +2,9 @@
 
 #include "core/Log.h"
 #include "core/View.h"
+#include "dom/Document.h"
 #include "js/v8/DomBindings.h"
+#include "js/v8/Inspector.h"
 #include "js/v8/Timers.h"
 #include "js/v8/UnityBindings.h"
 #include "js/v8/V8Platform.h"
@@ -10,6 +12,7 @@
 #include <libplatform/libplatform.h>
 
 #include <string>
+#include <vector>
 
 namespace xgu::js {
 namespace {
@@ -65,6 +68,8 @@ bool V8Runtime::initialize() {
     isolate_->SetData(kIsolateDataSlot, this);
     isolate_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
     isolate_->SetPromiseRejectCallback(&V8Runtime::promiseRejectCallback);
+    // Uncaught errors carry their stack to DevTools.
+    isolate_->SetCaptureStackTraceForUncaughtExceptions(true, 32);
 
     v8::Isolate::Scope isolateScope(isolate_);
     v8::HandleScope handleScope(isolate_);
@@ -76,6 +81,13 @@ bool V8Runtime::initialize() {
         return false;
     }
     context_.Reset(isolate_, context);
+    // Before the globals: V8's built-in console reports to the inspector, and
+    // installGlobals wraps that console.
+    {
+        const dom::Document* document = view_.documentOrNull();
+        inspector_ = std::make_unique<Inspector>(*this, view_.id(), view_.desc().name,
+                                                 document ? document->url() : std::string());
+    }
     dom_ = std::make_unique<DomBindings>(*this, isolate_);
     unity_ = std::make_unique<UnityBindings>(*this, isolate_, view_.bridge());
     timers_ = std::make_unique<Timers>(*this, isolate_);
@@ -85,30 +97,49 @@ bool V8Runtime::initialize() {
         installGlobals(context);
         unity_->install(context);
         timers_->install(context);
+        inspector_->contextCreated(context);
     }
     XGU_LOG_DEBUG("view \"%s\": V8 isolate created", view_.desc().name.c_str());
     return true;
 }
 
 void V8Runtime::installGlobals(v8::Local<v8::Context> context) {
-    // console.{debug,log,info,warn,error} -> log sink -> Unity Console.
-    v8::Local<v8::ObjectTemplate> consoleTemplate = v8::ObjectTemplate::New(isolate_);
+    // console.{debug,log,info,warn,error} -> log sink -> Unity Console, in our
+    // own format, and on to V8's built-in console, which reports to the
+    // inspector (DevTools). The rest of the built-in console (table, group,
+    // time, count, assert, ...) stays as it is and reaches the log through
+    // Inspector::consoleAPIMessage.
+    v8::Local<v8::Object> global = context->Global();
+    v8::Local<v8::Value> builtin;
+    v8::Local<v8::Object> console;
+    if (global->Get(context, v8::String::NewFromUtf8Literal(isolate_, "console")).ToLocal(&builtin) &&
+        builtin->IsObject()) {
+        console = builtin.As<v8::Object>();
+    } else {
+        console = v8::Object::New(isolate_);
+        global->Set(context, v8::String::NewFromUtf8Literal(isolate_, "console"), console).Check();
+    }
     const struct {
         const char* name;
         int level;
     } methods[] = {{"debug", 0}, {"log", 1}, {"info", 1}, {"warn", 2}, {"error", 3}};
     for (const auto& method : methods) {
-        consoleTemplate->Set(isolate_, method.name,
-                             v8::FunctionTemplate::New(isolate_, &V8Runtime::consoleCallback,
-                                                       v8::Int32::New(isolate_, method.level)));
+        v8::Local<v8::String> name = v8::String::NewFromUtf8(isolate_, method.name).ToLocalChecked();
+        v8::Local<v8::Value> original;
+        if (!console->Get(context, name).ToLocal(&original) || !original->IsFunction()) {
+            original = v8::Undefined(isolate_);
+        }
+        v8::Local<v8::Array> data = v8::Array::New(isolate_, 2);
+        data->Set(context, 0, v8::Int32::New(isolate_, method.level)).Check();
+        data->Set(context, 1, original).Check();
+        v8::Local<v8::Function> wrapper;
+        if (!v8::Function::New(context, &V8Runtime::consoleCallback, data).ToLocal(&wrapper)) {
+            XGU_LOG_ERROR("V8: failed to create console.%s", method.name);
+            continue;
+        }
+        wrapper->SetName(name);
+        console->Set(context, name, wrapper).Check();
     }
-    v8::Local<v8::Object> console;
-    if (!consoleTemplate->NewInstance(context).ToLocal(&console)) {
-        XGU_LOG_ERROR("V8: failed to create the console object");
-        return;
-    }
-    v8::Local<v8::Object> global = context->Global();
-    global->Set(context, v8::String::NewFromUtf8Literal(isolate_, "console"), console).Check();
     // `window` and `globalThis` name the same global object (DOM globals arrive in Stage 3).
     global->Set(context, v8::String::NewFromUtf8Literal(isolate_, "window"), global).Check();
 }
@@ -132,7 +163,7 @@ void V8Runtime::callFunction(v8::Local<v8::Function> function, v8::Local<v8::Val
     if (!function->Call(context, thisValue, argc, argv).ToLocal(&result)) {
         reportException(tryCatch, context);
     }
-    isolate_->PerformMicrotaskCheckpoint();
+    performMicrotaskCheckpoint();
     if (tryCatch.HasCaught()) {
         reportException(tryCatch, context);
     }
@@ -177,7 +208,7 @@ void V8Runtime::evaluate(std::string_view source, std::string_view originName) {
     if (!script->Run(context).ToLocal(&result)) {
         reportException(tryCatch, context);
     }
-    isolate_->PerformMicrotaskCheckpoint();
+    performMicrotaskCheckpoint();
     if (tryCatch.HasCaught()) {
         reportException(tryCatch, context);
     }
@@ -196,7 +227,7 @@ void V8Runtime::tick(double timeSeconds) {
         v8::Platform* platform = V8Platform::instance().platform();
         for (int i = 0; i < 64 && platform && v8::platform::PumpMessageLoop(platform, isolate_); ++i) {
         }
-        isolate_->PerformMicrotaskCheckpoint();
+        performMicrotaskCheckpoint();
     }
     // Timers and animation frames run after the engine's own work, before the
     // frame is restyled, which is where a browser fires them too.
@@ -237,11 +268,22 @@ void V8Runtime::dispose() {
         if (dom_) {
             dom_->dispose();
         }
+        if (inspector_) {
+            // Sessions save their state first, so DevTools picks the view's next
+            // document up where it left off.
+            inspector_->shutdown();
+            inspector_->contextDestroyed(context_.Get(isolate_));
+        }
+        pendingRejections_.clear();
         context_.Reset();
     }
     timers_.reset();
     unity_.reset();
     dom_.reset();
+    {
+        v8::Isolate::Scope isolateScope(isolate_);
+        inspector_.reset();
+    }
     isolate_->Dispose();
     isolate_ = nullptr;
     allocator_.reset();
@@ -299,6 +341,9 @@ void V8Runtime::reportException(v8::TryCatch& tryCatch, v8::Local<v8::Context> c
         text += " (" + resource + ":" + std::to_string(line) + ":" + std::to_string(column) + ")";
     }
     Log::write(LogLevel::Error, "Uncaught " + text);
+    if (inspector_) {
+        inspector_->exceptionThrown(context, "Uncaught", tryCatch.Exception(), message, text);
+    }
     tryCatch.Reset();
 }
 
@@ -310,7 +355,13 @@ void V8Runtime::consoleCallback(const v8::FunctionCallbackInfo<v8::Value>& info)
         return;
     }
     v8::Local<v8::Context> context = isolate->GetCurrentContext();
-    const int level = info.Data().As<v8::Int32>()->Value();
+    v8::Local<v8::Array> data = info.Data().As<v8::Array>();
+    v8::Local<v8::Value> levelValue;
+    v8::Local<v8::Value> original;
+    if (!data->Get(context, 0).ToLocal(&levelValue) || !data->Get(context, 1).ToLocal(&original)) {
+        return;
+    }
+    const int level = levelValue.As<v8::Int32>()->Value();
     std::string line;
     for (int i = 0; i < info.Length(); ++i) {
         if (i > 0) {
@@ -319,20 +370,67 @@ void V8Runtime::consoleCallback(const v8::FunctionCallbackInfo<v8::Value>& info)
         line += self->formatValue(context, info[i]);
     }
     Log::write(toLogLevel(level), line);
+
+    // Then the built-in method, for DevTools. Its echo to the log is muted,
+    // because the line above already went there.
+    if (original->IsFunction() && self->inspector_) {
+        std::vector<v8::Local<v8::Value>> args;
+        args.reserve(static_cast<size_t>(info.Length()));
+        for (int i = 0; i < info.Length(); ++i) {
+            args.push_back(info[i]);
+        }
+        self->inspector_->setConsoleEcho(false);
+        v8::TryCatch guard(isolate);
+        (void)original.As<v8::Function>()->Call(context, info.This(), static_cast<int>(args.size()), args.data());
+        self->inspector_->setConsoleEcho(true);
+    }
 }
 
 void V8Runtime::promiseRejectCallback(v8::PromiseRejectMessage message) {
-    if (message.GetEvent() != v8::kPromiseRejectWithNoHandler) {
-        return;
-    }
     v8::Isolate* isolate = message.GetPromise()->GetIsolate();
     v8::HandleScope handleScope(isolate);
     auto* self = static_cast<V8Runtime*>(isolate->GetData(kIsolateDataSlot));
     if (!self) {
         return;
     }
-    v8::Local<v8::Context> context = isolate->GetCurrentContext();
-    Log::write(LogLevel::Error, "Unhandled promise rejection: " + self->formatValue(context, message.GetValue()));
+    v8::Local<v8::Promise> promise = message.GetPromise();
+    if (message.GetEvent() == v8::kPromiseHandlerAddedAfterReject) {
+        std::erase_if(self->pendingRejections_,
+                      [&](const PendingRejection& pending) { return pending.promise == promise; });
+        return;
+    }
+    if (message.GetEvent() != v8::kPromiseRejectWithNoHandler) {
+        return;
+    }
+    PendingRejection pending;
+    pending.promise.Reset(isolate, promise);
+    pending.reason.Reset(isolate, message.GetValue());
+    // Made now, while the stack is the one that rejected.
+    pending.message.Reset(isolate, v8::Exception::CreateMessage(isolate, message.GetValue()));
+    self->pendingRejections_.push_back(std::move(pending));
+}
+
+void V8Runtime::performMicrotaskCheckpoint() {
+    if (!isolate_) {
+        return;
+    }
+    isolate_->PerformMicrotaskCheckpoint();
+    if (pendingRejections_.empty() || context_.IsEmpty()) {
+        return;
+    }
+    v8::HandleScope handleScope(isolate_);
+    v8::Local<v8::Context> context = context_.Get(isolate_);
+    v8::Context::Scope contextScope(context);
+    std::vector<PendingRejection> unhandled;
+    unhandled.swap(pendingRejections_);
+    for (PendingRejection& pending : unhandled) {
+        v8::Local<v8::Value> reason = pending.reason.Get(isolate_);
+        const std::string text = formatValue(context, reason);
+        Log::write(LogLevel::Error, "Unhandled promise rejection: " + text);
+        if (inspector_) {
+            inspector_->exceptionThrown(context, "Uncaught (in promise)", reason, pending.message.Get(isolate_), text);
+        }
+    }
 }
 
 } // namespace xgu::js

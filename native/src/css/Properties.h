@@ -95,6 +95,7 @@ enum class PropertyId : uint8_t {
     TextAlign,
     TextDecorationLine,
     TextDecorationColor,
+    TextShadow,
     TextTransform,
     WhiteSpace,
     TextOverflow,

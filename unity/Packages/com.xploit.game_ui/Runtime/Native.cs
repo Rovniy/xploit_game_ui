@@ -124,6 +124,27 @@ namespace Xploit.GameUI
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern uint xgu_log_dropped_count();
 
+        // ---- DevTools ------------------------------------------------------
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_devtools_start(ushort port);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xgu_devtools_stop();
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ushort xgu_devtools_port();
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint xgu_view_devtools_url(ulong view, byte[] buffer, uint capacity);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern Status xgu_view_devtools_send(ulong view, [MarshalAs(UnmanagedType.LPUTF8Str)] string message);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool xgu_devtools_poll(out ulong view, out IntPtr message);
+
         // ---- rendering -----------------------------------------------------
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]

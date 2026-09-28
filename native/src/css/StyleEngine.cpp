@@ -551,6 +551,30 @@ std::vector<BoxShadow> toBoxShadows(const CssValue& value, const LengthContext& 
     return shadows;
 }
 
+// The parser already normalised every layer to three lengths and an optional
+// colour, so this only resolves the units.
+std::vector<TextShadow> toTextShadows(const CssValue& value, const LengthContext& context) {
+    std::vector<TextShadow> shadows;
+    if (value.type != ValueType::List) {
+        return shadows;
+    }
+    for (const CssValue& layer : value.items) {
+        if (layer.type != ValueType::List || layer.items.size() < 3) {
+            continue;
+        }
+        TextShadow shadow;
+        shadow.offsetX = resolveLength(layer.items[0].length, context, 0.0f);
+        shadow.offsetY = resolveLength(layer.items[1].length, context, 0.0f);
+        shadow.blur = std::max(0.0f, resolveLength(layer.items[2].length, context, 0.0f));
+        if (layer.items.size() > 3 && layer.items[3].isColor()) {
+            shadow.color = layer.items[3].color;
+            shadow.currentColor = false;
+        }
+        shadows.push_back(shadow);
+    }
+    return shadows;
+}
+
 std::vector<std::string> toFontFamilies(const CssValue& value) {
     std::vector<std::string> families;
     const auto push = [&](const CssValue& item) {
@@ -911,6 +935,9 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
                 case PropertyId::FontFamily:
                     style->fontFamily = source.fontFamily;
                     break;
+                case PropertyId::TextShadow:
+                    style->textShadow = source.textShadow;
+                    break;
                 default:
                     break;
                 }
@@ -1125,6 +1152,9 @@ RefPtr<ComputedStyle> StyleEngine::computeStyle(dom::Element& element, const Com
         case PropertyId::BoxShadow:
             style->boxShadow = keywordIs(value, "none") ? std::vector<BoxShadow>()
                                                         : toBoxShadows(value, context, style->color);
+            break;
+        case PropertyId::TextShadow:
+            style->textShadow = keywordIs(value, "none") ? std::vector<TextShadow>() : toTextShadows(value, context);
             break;
         case PropertyId::Visibility:
             style->visibility = keywordIs(value, "hidden")     ? Visibility::Hidden

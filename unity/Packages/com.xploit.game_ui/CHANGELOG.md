@@ -5,6 +5,42 @@ All notable changes to this package are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While the project is below 1.0 a
 minor release may contain a breaking change; those are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- `text-shadow`: several shadows separated by commas, offsets, blur and colour
+  (`currentColor` when omitted), inherited.
+- Chrome DevTools for the page's JavaScript: `WebDevTools.Start()` (automatic in
+  Play Mode, off in release players) opens an endpoint on `127.0.0.1:9222`, and
+  every view is a target in `chrome://inspect` with Console, Sources (breakpoints,
+  stepping), Profiler and Memory. Sessions survive a reload, breakpoints
+  included. The endpoint refuses requests whose `Host` is not the loopback address.
+- *Window ▸ Xploit ▸ JS Console*: console output per view and a prompt that
+  evaluates JavaScript in it; `HtmlView.EvaluateAsync` does the same from code,
+  and `HtmlView.DevToolsUrl` gives the URL that opens DevTools on the view. The
+  guide is `docs/devtools.md`.
+- The whole built-in `console` in pages: `table`, `group`, `time`, `count`,
+  `assert`, `dir` and the rest now work (they used to be missing).
+- `xgu_cli serve page.html` runs a page with DevTools outside Unity.
+- Views on a mesh: `HtmlView.TargetRenderer` shows the view on any `Renderer`
+  with the new `XploitGameUI/WorldPremultiplied` shader (or only sets the texture
+  on your own material with `KeepRendererMaterial`), and gives the Renderer its
+  material back when the view goes. `WebInput` works on such a mesh through a
+  `PhysicsRaycaster`, mapping the hit through the mesh UVs (`MeshCollider`) or as
+  a quad (any other collider). `HtmlView.RayToView` and `HitToView` expose the
+  same mapping.
+
+### Fixed
+
+- "Unhandled promise rejection" is reported once the microtasks have run, as in
+  a browser, not the moment a promise rejects: a handler attached later in the
+  same turn (an awaiting caller, the DevTools console) no longer produces a
+  false error.
+- The `HtmlView` inspector refreshed its live state every frame in Play Mode,
+  which cost the editor several milliseconds a frame while the object was
+  selected. It now refreshes four times a second.
+
 ## [0.9.0] — 2026-09-23
 
 The first public release.

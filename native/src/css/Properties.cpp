@@ -88,6 +88,7 @@ constexpr std::array<PropertyMeta, kPropertyCount> kProperties = {{
     {"text-align", true, true},
     {"text-decoration-line", false, false},
     {"text-decoration-color", false, false},
+    {"text-shadow", true, false},
     {"text-transform", true, true},
     {"white-space", true, true},
     {"text-overflow", false, true},

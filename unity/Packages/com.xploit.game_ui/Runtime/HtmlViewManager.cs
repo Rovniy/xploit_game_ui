@@ -37,6 +37,9 @@ namespace Xploit.GameUI
             }
         }
 
+        /// <summary>The manager if one exists, without creating it (safe outside Play Mode).</summary>
+        public static HtmlViewManager Current => s_instance;
+
         /// <summary>Texture provider chosen by the native runtime for this process.</summary>
         public static RenderProvider Provider => Native.xgu_render_provider();
 
@@ -95,6 +98,11 @@ namespace Xploit.GameUI
             // thread) are queued and reported from DrainLogs on the main thread.
             Native.xgu_log_queue_enable(true);
             m_nativeReady = true;
+            // Not in batch mode: a build machine or a test run has no one to use it.
+            if (WebDevTools.AutoStart && !Application.isBatchMode && !WebDevTools.IsRunning)
+            {
+                WebDevTools.Start(WebDevTools.AutoStartPort);
+            }
             if (HtmlView.EnableDebug)
             {
                 Debug.Log($"[xploit_game_ui] native {NativeVersion}, provider {Provider}, device {SystemInfo.graphicsDeviceType}");
@@ -113,6 +121,18 @@ namespace Xploit.GameUI
         /// somewhere of your own.
         /// </summary>
         public static bool SuppressConsoleOutput { get; set; }
+
+        const int RecentLogCapacity = 2000;
+        static readonly List<WebLogMessage> s_recentLogs = new List<WebLogMessage>();
+
+        /// <summary>
+        /// The last messages from the runtime, oldest first, so a console opened
+        /// late still shows what happened before it.
+        /// </summary>
+        public static IReadOnlyList<WebLogMessage> RecentLogs => s_recentLogs;
+
+        /// <summary>Forgets <see cref="RecentLogs"/>.</summary>
+        public static void ClearRecentLogs() => s_recentLogs.Clear();
 
         /// <summary>The views currently alive, in registration order.</summary>
         public static IReadOnlyList<HtmlView> Views =>
@@ -156,6 +176,7 @@ namespace Xploit.GameUI
             // One runtime frame for every view (JS message loop; later timers, layout, paint).
             Native.xgu_tick(Time.unscaledTimeAsDouble);
             DrainLogs();
+            WebDevTools.Pump();
             for (int i = 0; i < m_views.Count; i++)
             {
                 var view = m_views[i];
@@ -185,6 +206,11 @@ namespace Xploit.GameUI
                 }
                 var text = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(messagePtr);
                 var message = new WebLogMessage((WebLogLevel)level, text, FindView(handle));
+                if (s_recentLogs.Count >= RecentLogCapacity)
+                {
+                    s_recentLogs.RemoveRange(0, RecentLogCapacity / 10);
+                }
+                s_recentLogs.Add(message);
                 message.View?.RaiseLog(message);
                 Log?.Invoke(message);
                 if (SuppressConsoleOutput)
@@ -237,6 +263,14 @@ namespace Xploit.GameUI
 
         void DestroyAllViews()
         {
+            if (m_nativeReady)
+            {
+                // First: closing the DevTools sessions resumes a script stopped at
+                // a breakpoint, which would otherwise hold the runtime thread and
+                // with it the disposal of every view. The DLL also outlives Play
+                // Mode in the editor, and the next session starts its own endpoint.
+                Native.xgu_devtools_stop();
+            }
             for (int i = m_views.Count - 1; i >= 0; i--)
             {
                 var view = m_views[i];

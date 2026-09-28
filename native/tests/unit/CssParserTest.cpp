@@ -212,6 +212,46 @@ TEST(CssParser, BoxShadowAndTextDecoration) {
     EXPECT_EQ(find(decoration, PropertyId::TextDecorationColor)->value.color, Color::rgba(255, 0, 0));
 }
 
+TEST(CssParser, TextShadowIsAListOfLayers) {
+    const DeclarationBlock block = parse("text-shadow: 1px 2px 3px red, #00ff00 -1px 0");
+    const Declaration* declaration = find(block, PropertyId::TextShadow);
+    ASSERT_NE(declaration, nullptr);
+    ASSERT_EQ(declaration->value.type, ValueType::List);
+    ASSERT_EQ(declaration->value.items.size(), 2u);
+
+    const CssValue& first = declaration->value.items[0];
+    ASSERT_EQ(first.items.size(), 4u) << "x, y, blur and the colour";
+    EXPECT_FLOAT_EQ(first.items[2].length.value, 3.0f);
+    EXPECT_EQ(first.items[3].color, Color::rgba(255, 0, 0));
+
+    const CssValue& second = declaration->value.items[1];
+    ASSERT_EQ(second.items.size(), 4u) << "a colour may come first, and a missing blur is 0";
+    EXPECT_FLOAT_EQ(second.items[0].length.value, -1.0f);
+    EXPECT_FLOAT_EQ(second.items[2].length.value, 0.0f);
+    EXPECT_EQ(second.items[3].color, Color::rgba(0, 255, 0));
+
+    const DeclarationBlock noColor = parse("text-shadow: 0 0 4px currentcolor");
+    ASSERT_NE(find(noColor, PropertyId::TextShadow), nullptr);
+    EXPECT_EQ(find(noColor, PropertyId::TextShadow)->value.items[0].items.size(), 3u) << "currentColor stays implicit";
+    EXPECT_NE(find(parse("text-shadow: none"), PropertyId::TextShadow), nullptr);
+}
+
+TEST(CssParser, InvalidTextShadowsAreRejected) {
+    EXPECT_TRUE(parse("text-shadow: 1px").empty()) << "both offsets are required";
+    EXPECT_TRUE(parse("text-shadow: 1px 1px 1px 1px").empty()) << "there is no spread";
+    EXPECT_TRUE(parse("text-shadow: 1px 1px -2px").empty()) << "the blur cannot be negative";
+    EXPECT_TRUE(parse("text-shadow: inset 1px 1px").empty()) << "there is no inset";
+    EXPECT_TRUE(parse("text-shadow: 1px red 1px").empty()) << "the lengths are one run";
+    EXPECT_TRUE(parse("text-shadow: 1px 1px red blue").empty()) << "one colour per layer";
+    EXPECT_TRUE(parse("text-shadow: 1px 1px, none").empty()) << "none is not a layer";
+    EXPECT_TRUE(parse("text-shadow: 1 1").empty()) << "unitless lengths other than 0 are invalid";
+}
+
+TEST(CssParser, TextShadowSerializesWithCommas) {
+    const std::string text = serializeDeclarations(parse("text-shadow: 1px 2px red, 0 0 4px #0000ff"));
+    EXPECT_NE(text.find("text-shadow: 1px 2px 0px #ff0000, 0 0 4px #0000ff;"), std::string::npos) << text;
+}
+
 TEST(CssParser, SerializesBackToText) {
     const DeclarationBlock block = parse("color: #ff0000; width: 10px");
     const std::string text = serializeDeclarations(block);

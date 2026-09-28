@@ -69,10 +69,7 @@ namespace Xploit.GameUI.Tests
 
         static IEnumerator Settle()
         {
-            for (int i = 0; i < SettleFrames; i++)
-            {
-                yield return null;
-            }
+            return TestFrames.Settle(SettleFrames);
         }
 
         [UnityTest]

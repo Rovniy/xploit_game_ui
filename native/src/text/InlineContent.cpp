@@ -57,6 +57,17 @@ TextStyle toTextStyle(const css::StyleValues& style) {
         textStyle.setDecoration(static_cast<TextDecoration>(decoration));
         textStyle.setDecorationColor(toSkColor(style.textDecorationColor));
     }
+    // skparagraph paints the shadows in the order they were added, each on top of
+    // the one before; CSS puts the first one on top, so they go in reversed.
+    for (auto shadow = style.textShadow.rbegin(); shadow != style.textShadow.rend(); ++shadow) {
+        const css::Color color = shadow->resolvedColor(style.color);
+        if (color.isTransparent()) {
+            continue;
+        }
+        // CSS blur radius is roughly two standard deviations, as for box-shadow.
+        textStyle.addShadow(TextShadow(toSkColor(color), SkPoint::Make(shadow->offsetX, shadow->offsetY),
+                                       shadow->blur / 2.0f));
+    }
     return textStyle;
 }
 
@@ -254,6 +265,23 @@ void InlineContent::setPlaceholderSizes(const std::vector<InlinePlaceholder>& si
     }
     placeholders_ = std::move(updated);
     invalidate();
+}
+
+InlineContent::Outsets InlineContent::shadowOutsets() const {
+    Outsets outsets;
+    const auto grow = [&](const css::StyleValues& style) {
+        for (const css::TextShadow& shadow : style.textShadow) {
+            outsets.left = std::max(outsets.left, shadow.blur - shadow.offsetX);
+            outsets.right = std::max(outsets.right, shadow.blur + shadow.offsetX);
+            outsets.top = std::max(outsets.top, shadow.blur - shadow.offsetY);
+            outsets.bottom = std::max(outsets.bottom, shadow.blur + shadow.offsetY);
+        }
+    };
+    grow(containerStyle_);
+    for (const Run& run : runs_) {
+        grow(run.style);
+    }
+    return outsets;
 }
 
 void InlineContent::invalidate() {

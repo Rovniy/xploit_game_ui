@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace xgu {
 class View;
@@ -18,6 +19,7 @@ class Document;
 namespace xgu::js {
 
 class DomBindings;
+class Inspector;
 class Timers;
 class UnityBindings;
 
@@ -38,6 +40,7 @@ public:
     DomBindings* domBindings() const { return dom_.get(); }
     UnityBindings* unityBindings() const { return unity_.get(); }
     Timers* timers() const { return timers_.get(); }
+    Inspector* inspector() const { return inspector_.get(); }
     // The view's context; empty before initialize() or after dispose().
     v8::Local<v8::Context> context() const;
 
@@ -46,6 +49,12 @@ public:
     // and timers go through here so one bad handler cannot break the frame.
     void callFunction(v8::Local<v8::Function> function, v8::Local<v8::Value> thisValue, int argc,
                       v8::Local<v8::Value> argv[]);
+
+    // Runs the queued promise reactions, then reports every rejection that is
+    // still without a handler. Browsers wait for the microtasks the same way,
+    // because a handler added later in the same turn (an awaiting caller, the
+    // DevTools console) makes the rejection a handled one after all.
+    void performMicrotaskCheckpoint();
 
     // Exposes `document` (and the DOM interfaces) for this view's document.
     void installDom(dom::Document& document);
@@ -72,6 +81,13 @@ private:
     std::unique_ptr<DomBindings> dom_;
     std::unique_ptr<UnityBindings> unity_;
     std::unique_ptr<Timers> timers_;
+    std::unique_ptr<Inspector> inspector_;
+    struct PendingRejection {
+        v8::Global<v8::Promise> promise;
+        v8::Global<v8::Value> reason;
+        v8::Global<v8::Message> message;
+    };
+    std::vector<PendingRejection> pendingRejections_;
 };
 
 } // namespace xgu::js

@@ -137,6 +137,24 @@ TEST_F(DamageTest, AShadowIsInsideTheDamage) {
     EXPECT_GE(after.damage_y + after.damage_height, 130);
 }
 
+TEST_F(DamageTest, ATextShadowIsInsideTheDamage) {
+    load(R"html(
+      <div id="box" style="position:absolute;left:80px;top:80px;width:40px;height:20px;font-size:12px;
+                           color:#ff0000;text-shadow: 30px 30px 10px #000000">Hi</div>)html");
+
+    xgu_tick(0.0);
+    run("document.getElementById('box').style.color = '#0000ff';");
+    xgu_tick(1.0);
+
+    const xgu_frame_stats after = stats();
+    // The shadow reaches 40px past the right edge of the box and past the bottom
+    // of the line.
+    EXPECT_LE(after.damage_x, 80);
+    EXPECT_LE(after.damage_y, 80);
+    EXPECT_GE(after.damage_x + after.damage_width, 160);
+    EXPECT_GE(after.damage_y + after.damage_height, 130);
+}
+
 TEST_F(DamageTest, AddingAnElementRedrawsEverything) {
     // A new box tree loses the boxes that went away, so their pixels can only be
     // cleaned up by redrawing the surface.

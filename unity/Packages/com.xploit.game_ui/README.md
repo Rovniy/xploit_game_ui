@@ -24,6 +24,28 @@ Full documentation: <https://github.com/Rovniy/xploit_game_ui>
    **Draw Test Frame On Enable**.
 4. Press Play.
 
+## On a mesh
+
+A view can also be a screen in the world: a monitor on a desk, a panel on a
+wall, a curved display.
+
+1. Create a Quad (or any mesh with UVs) and add `HtmlView` to it. The view finds
+   the `MeshRenderer` on its own (or set **Target Renderer**) and draws with the
+   built-in `XploitGameUI/WorldPremultiplied` shader, an unlit transparent shader
+   with *Cull* and *ZWrite* switches. Turn on **Keep Material** to use a material
+   of your own instead; the view then only sets **Texture Property** on it, and
+   the shader has to expect premultiplied alpha.
+2. Turn off **Size From Rect Transform** and set **Size** in pixels, with the
+   aspect of the mesh: 1280 × 720 on a quad scaled 16 × 9.
+3. For input, add `WebInput` to the same object, keep a Collider on it and put a
+   `PhysicsRaycaster` on the camera; the scene needs an `EventSystem` as usual.
+   A non-convex `MeshCollider` maps the hit through the mesh UVs, so the pointer
+   follows the texture on any shape. Any other collider is mapped as a quad in
+   the local XY plane from -0.5 to 0.5, which is what Unity's Quad is.
+
+`HtmlView.RayToView(ray, out point)` and `HitToView(hit, out point)` do the same
+mapping for input of your own, such as a VR controller ray.
+
 ```csharp
 public sealed class Menu : MonoBehaviour
 {
@@ -39,6 +61,37 @@ public sealed class Menu : MonoBehaviour
 ```
 
 A complete worked example ships as **Samples → HUD** in the Package Manager.
+
+## Debugging the page
+
+**JS Console** (*Window ▸ Xploit ▸ JS Console*) shows the page's console output
+per view and evaluates JavaScript in it the way the DevTools console does: the
+value comes back formatted, a promise is awaited, and `let` can be declared again.
+Up and Down walk the history; Shift+Enter starts a new line. From code, the same
+thing is `await view.EvaluateAsync("document.title")`.
+
+**Chrome DevTools.** With the *DevTools* toggle in that window on (the default),
+Play Mode starts an endpoint on `127.0.0.1:9222`. Open `chrome://inspect` and the
+views are listed under *Remote Target*, or press **DevTools** in the `HtmlView`
+inspector. You get Console, Sources with breakpoints and stepping, Profiler and
+Memory. A few things worth knowing:
+
+- While a script is stopped at a breakpoint its view does not update, but the
+  game keeps running: JavaScript has a thread of its own.
+- Breakpoints survive `Reload`, so to stop in code that runs while the page
+  loads, set the breakpoint and press **Reload** in the inspector.
+- DevTools can only fetch source maps that are inline
+  (`build.sourcemap: 'inline'` in Vite); the page's files are not served.
+- The Elements and Styles panels are not there: the DevTools protocol is
+  answered by V8, which knows JavaScript, not our DOM.
+- The endpoint listens on the loopback address only and refuses a request whose
+  `Host` is anything else. In a player it starts only in a Development Build,
+  and only when asked: `WebDevTools.Start()`, or `WebDevTools.AutoStart = true`
+  before the first view.
+
+`xgu_cli serve page.html` runs a page outside Unity, with the same endpoint, for
+working on the page alone. The whole guide, with the prompt's keys and what each
+DevTools panel can do, is [docs/devtools.md](https://github.com/Rovniy/xploit_game_ui/blob/main/docs/devtools.md).
 
 ## The API
 

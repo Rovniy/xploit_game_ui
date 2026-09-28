@@ -12,8 +12,11 @@ namespace Xploit.GameUI
     /// makes a view on a world-space canvas clickable. Keyboard input is polled
     /// in Update from the legacy Input Manager.
     ///
-    /// The GameObject needs a Graphic with Raycast Target on (the RawImage the
-    /// view draws into), and the scene needs an EventSystem.
+    /// On a canvas the GameObject needs a Graphic with Raycast Target on (the
+    /// RawImage the view draws into). On a mesh (<see cref="HtmlView.TargetRenderer"/>)
+    /// it needs a Collider, and the camera a PhysicsRaycaster; a non-convex
+    /// MeshCollider maps the hit through the mesh UVs, any other collider as a
+    /// quad. Either way the scene needs an EventSystem.
     /// </summary>
     [AddComponentMenu("Xploit/Game UI/Web Input")]
     [RequireComponent(typeof(HtmlView))]
@@ -106,7 +109,8 @@ namespace Xploit.GameUI
             {
                 return;
             }
-            if (!m_view.ScreenToView(eventData.position, eventData.pressEventCamera, out var point))
+            var camera = eventData.pressEventCamera != null ? eventData.pressEventCamera : eventData.enterEventCamera;
+            if (!m_view.ScreenToView(eventData.position, camera, out var point))
             {
                 return;
             }

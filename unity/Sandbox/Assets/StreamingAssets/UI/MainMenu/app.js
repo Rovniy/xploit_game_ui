@@ -33,6 +33,7 @@ nameField.addEventListener("change", () => {
 });
 
 Unity.on("healthChanged", setHealth);
+Unity.on("PING", () => addLine("11111"));
 
 // Ask the game about itself. Nothing breaks when no handler is registered: the
 // promise rejects and the page simply says so.

@@ -235,6 +235,37 @@ TEST_F(StyleEngineTest, BoxShadowParsesIntoTypedValues) {
     EXPECT_EQ(shadow.color.a, 128);
 }
 
+TEST_F(StyleEngineTest, TextShadowResolvesItsLengths) {
+    load("<div id=\"d\">x</div>", "#d { font-size: 10px; text-shadow: 1em 2px 0.5em rgba(0,0,0,0.5), 0 0 red }");
+    ASSERT_EQ(styleOf("d")->textShadow.size(), 2u);
+    const TextShadow& shadow = styleOf("d")->textShadow.front();
+    EXPECT_FLOAT_EQ(shadow.offsetX, 10.0f);
+    EXPECT_FLOAT_EQ(shadow.offsetY, 2.0f);
+    EXPECT_FLOAT_EQ(shadow.blur, 5.0f);
+    EXPECT_FALSE(shadow.currentColor);
+    EXPECT_EQ(shadow.color.a, 128);
+    EXPECT_EQ(styleOf("d")->textShadow[1].color, Color::rgba(255, 0, 0));
+}
+
+TEST_F(StyleEngineTest, TextShadowIsInheritedAndFollowsTheTextColour) {
+    load("<div id=\"outer\"><span id=\"inner\">x</span><span id=\"plain\">y</span></div>",
+         "#outer { color: #ff0000; text-shadow: 1px 1px 2px } #inner { color: #0000ff } #plain { text-shadow: none }");
+    ASSERT_EQ(styleOf("inner")->textShadow.size(), 1u) << "text-shadow is inherited";
+    const TextShadow& shadow = styleOf("inner")->textShadow.front();
+    EXPECT_TRUE(shadow.currentColor);
+    EXPECT_EQ(shadow.resolvedColor(styleOf("inner")->color), Color::rgba(0, 0, 255))
+        << "currentColor is the colour of the text the shadow is under, not of the element that set it";
+    EXPECT_TRUE(styleOf("plain")->textShadow.empty());
+}
+
+TEST_F(StyleEngineTest, TextShadowChangeRepaintsTheSubtree) {
+    load("<div id=\"d\"><span id=\"s\">x</span></div>", "#d { text-shadow: 1px 1px red }");
+    element("d")->setAttribute(Atom("style"), "text-shadow: 2px 2px red");
+    recalc();
+    ASSERT_EQ(styleOf("s")->textShadow.size(), 1u);
+    EXPECT_FLOAT_EQ(styleOf("s")->textShadow.front().offsetX, 2.0f) << "the change reaches inheriting children";
+}
+
 TEST_F(StyleEngineTest, UnsupportedPropertiesAreReported) {
     load("<div id=\"d\"></div>", "#d { grid-template-columns: 1fr 1fr; color: #010101 }");
     EXPECT_EQ(styleOf("d")->color, Color::rgba(1, 1, 1)) << "the valid declaration still applies";

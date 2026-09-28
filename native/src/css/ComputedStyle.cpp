@@ -57,6 +57,7 @@ void ComputedStyle::inheritFrom(const ComputedStyle& parent) {
     lineHeight = parent.lineHeight;
     letterSpacing = parent.letterSpacing;
     textAlign = parent.textAlign;
+    textShadow = parent.textShadow;
     textTransform = parent.textTransform;
     whiteSpace = parent.whiteSpace;
     visibility = parent.visibility;
@@ -107,7 +108,8 @@ ComputedStyle::Diff ComputedStyle::diff(const ComputedStyle& before, const Compu
                    before.color != after.color || before.borderColor != after.borderColor ||
                    before.borderStyle != after.borderStyle || before.borderRadius != after.borderRadius ||
                    before.textDecorationLine != after.textDecorationLine ||
-                   before.textDecorationColor != after.textDecorationColor || before.zIndex != after.zIndex ||
+                   before.textDecorationColor != after.textDecorationColor ||
+                   before.textShadow != after.textShadow || before.zIndex != after.zIndex ||
                    before.zIndexAuto != after.zIndexAuto;
 
     result.inheritedChanged =
@@ -115,8 +117,8 @@ ComputedStyle::Diff ComputedStyle::diff(const ComputedStyle& before, const Compu
         before.fontWeight != after.fontWeight || before.fontStyle != after.fontStyle ||
         before.lineHeight != after.lineHeight || before.letterSpacing != after.letterSpacing ||
         before.textAlign != after.textAlign || before.textTransform != after.textTransform ||
-        before.whiteSpace != after.whiteSpace || before.visibility != after.visibility ||
-        before.pointerEvents != after.pointerEvents || before.cursor != after.cursor;
+        before.textShadow != after.textShadow || before.whiteSpace != after.whiteSpace ||
+        before.visibility != after.visibility || before.pointerEvents != after.pointerEvents || before.cursor != after.cursor;
 
     return result;
 }

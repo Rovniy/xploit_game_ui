@@ -13,6 +13,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <optional>
 #include <sstream>
 
 namespace xgu::css {
@@ -342,6 +343,55 @@ bool acceptsLength(PropertyId property, const CssValue& value, bool allowAuto, b
         return false;
     }
     (void)property;
+    return true;
+}
+
+// text-shadow: `none`, or comma separated `<x> <y> [<blur>]` with an optional
+// colour before or after the lengths. Each layer becomes a list of exactly three
+// lengths followed by the colour when one was given (no colour means
+// currentColor), and the value is the list of those layers.
+bool normalizeTextShadow(const std::vector<std::vector<CssValue>>& groups, CssValue& out) {
+    if (groups.size() == 1 && groups.front().size() == 1 && isKeywordIn(groups.front().front(), {"none"})) {
+        out = groups.front().front();
+        return true;
+    }
+    std::vector<CssValue> layers;
+    for (const std::vector<CssValue>& group : groups) {
+        std::vector<CssValue> lengths;
+        std::optional<CssValue> color;
+        bool sawColor = false;
+        bool lengthsDone = false;
+        for (const CssValue& component : group) {
+            if (component.isLength()) {
+                if (lengthsDone || lengths.size() == 3 || component.length.isPercent() ||
+                    !acceptsLength(PropertyId::TextShadow, component, false, true)) {
+                    return false; // the lengths have to be one uninterrupted run
+                }
+                lengths.push_back(component);
+                continue;
+            }
+            const bool isColor = component.isColor() || isKeywordIn(component, {"currentcolor"});
+            if (!isColor || sawColor) {
+                return false;
+            }
+            sawColor = true;
+            if (!component.isKeyword()) {
+                color = component;
+            }
+            lengthsDone = !lengths.empty();
+        }
+        if (lengths.size() < 2 || (lengths.size() == 3 && lengths[2].length.value < 0.0f)) {
+            return false;
+        }
+        if (lengths.size() == 2) {
+            lengths.push_back(CssValue::makeLength(Length::zero()));
+        }
+        if (color) {
+            lengths.push_back(*color);
+        }
+        layers.push_back(CssValue::makeList(std::move(lengths)));
+    }
+    out = CssValue::makeList(std::move(layers));
     return true;
 }
 
@@ -1138,7 +1188,10 @@ bool parseDeclaration(std::string_view name, std::string_view valueText, Declara
         return false;
     }
     CssValue normalized;
-    if (!normalizeValue(id, parsed.components, normalized)) {
+    // text-shadow is the one property here that is a comma separated list.
+    const bool valid = id == PropertyId::TextShadow ? normalizeTextShadow(parsed.groups, normalized)
+                                                    : normalizeValue(id, parsed.components, normalized);
+    if (!valid) {
         addWarning(warnings, "invalid value for " + property + ": " + value);
         return false;
     }
@@ -1414,7 +1467,8 @@ std::string serializeValue(const CssValue& value) {
     case ValueType::List:
         for (size_t i = 0; i < value.items.size(); ++i) {
             if (i > 0) {
-                out << ' ';
+                // A list of lists is a comma separated list of layers (text-shadow).
+                out << (value.items[i].type == ValueType::List ? ", " : " ");
             }
             out << serializeValue(value.items[i]);
         }

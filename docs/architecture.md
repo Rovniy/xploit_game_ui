@@ -31,7 +31,7 @@ Hosts on top of `xgu_runtime`: `xploit_game_ui.dll` (Unity), `xgu_host` (a Win32
 ```
 HTML ──lexbor──▶ DOM ──StyleEngine──▶ ComputedStyle ──LayoutTreeBuilder──▶ LayoutBox + Yoga
    ──YGNodeCalculateLayout──▶ box frames ──Painter──▶ SkPicture (DisplayList)
-   ──FrameMailbox──▶ submission thread ──SkSurface(D3D12)──▶ ID3D12Resource ──CreateExternalTexture──▶ RawImage / Material
+   ──FrameMailbox──▶ submission thread ──SkSurface(D3D12)──▶ ID3D12Resource ──CreateExternalTexture──▶ RawImage / MeshRenderer
 ```
 
 Invalidation runs on per-node dirty bits: `StyleSelf`, `StyleChildren`, `LayoutTree`, `Layout`, `PaintSelf`, `PaintChildren`. A frame is only produced when something is dirty, an animation is running or a timer fired; the painter records where every box landed in device pixels and publishes the union of the boxes that moved or asked for a repaint, so the provider rasterises that rectangle instead of the whole surface.

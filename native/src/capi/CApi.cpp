@@ -4,9 +4,12 @@
 
 #include "core/Log.h"
 #include "core/Runtime.h"
+#include "devtools/DevToolsHub.h"
 #include "render/skia/TestFrame.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -374,6 +377,53 @@ XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, con
     const bool ok = Runtime::instance().executeJavaScript(static_cast<ViewId>(view), std::string(source),
                                                           origin ? std::string(origin) : std::string("<execute_js>"));
     return ok ? XGU_OK : XGU_ERR_INVALID_VIEW;
+}
+
+XGU_API xgu_status xgu_devtools_start(uint16_t port) {
+    return devtools::DevToolsHub::instance().start(port) ? XGU_OK : XGU_ERR_INTERNAL;
+}
+
+XGU_API void xgu_devtools_stop(void) { devtools::DevToolsHub::instance().stop(); }
+
+XGU_API uint16_t xgu_devtools_port(void) { return devtools::DevToolsHub::instance().port(); }
+
+XGU_API uint32_t xgu_view_devtools_url(xgu_view_id view, char* buffer, uint32_t capacity) {
+    const std::string url = devtools::DevToolsHub::instance().frontendUrl(static_cast<devtools::TargetId>(view));
+    if (buffer && capacity > 0) {
+        const size_t count = std::min<size_t>(url.size(), capacity - 1);
+        std::memcpy(buffer, url.data(), count);
+        buffer[count] = '\0';
+    }
+    return static_cast<uint32_t>(url.size());
+}
+
+XGU_API xgu_status xgu_view_devtools_send(xgu_view_id view, const char* message) {
+    if (!message) {
+        return XGU_ERR_INVALID_ARGUMENT;
+    }
+    if (!Runtime::instance().initialized()) {
+        return XGU_ERR_NOT_INITIALIZED;
+    }
+    if (!Runtime::instance().views().resolve(static_cast<ViewId>(view))) {
+        return XGU_ERR_INVALID_VIEW;
+    }
+    devtools::DevToolsHub::instance().sendFromHost(static_cast<devtools::TargetId>(view), message);
+    return XGU_OK;
+}
+
+XGU_API bool xgu_devtools_poll(xgu_view_id* out_view, const char** out_message) {
+    static thread_local std::string buffer;
+    devtools::TargetId target = 0;
+    if (!devtools::DevToolsHub::instance().pollHost(target, buffer)) {
+        return false;
+    }
+    if (out_view) {
+        *out_view = static_cast<xgu_view_id>(target);
+    }
+    if (out_message) {
+        *out_message = buffer.c_str();
+    }
+    return true;
 }
 
 XGU_API xgu_status xgu_view_set_paused(xgu_view_id view, bool paused) {

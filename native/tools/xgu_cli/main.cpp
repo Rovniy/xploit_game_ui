@@ -12,6 +12,11 @@
 //       Loads, lays out and paints the page, then writes the result as PNG
 //       (used by the golden image tests).
 //   xgu_cli bench <page.html> [--frames N] [--width W] [--height H]
+//       Paints N frames and reports where the time goes.
+//   xgu_cli serve <page.html> [--port P] [--seconds S] [--width W] [--height H]
+//       Runs the page on the runtime thread with Chrome DevTools on
+//       127.0.0.1:P (9222) until Ctrl+C, or for S seconds: a way to debug a
+//       page without Unity.
 //       Ticks the page N times and reports what a frame costs, split into
 //       style, layout, recording and rasterising.
 //
@@ -35,12 +40,22 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace {
 
@@ -54,7 +69,8 @@ void usage() {
                  "  xgu_cli js <script.js> [--origin NAME]\n"
                  "  xgu_cli layout <page.html> [--width W] [--height H] [--dpr F]\n"
                  "  xgu_cli render <page.html> <out.png> [--width W] [--height H] [--dpr F]\n"
-                 "  xgu_cli bench <page.html> [--frames N] [--width W] [--height H]\n",
+                 "  xgu_cli bench <page.html> [--frames N] [--width W] [--height H]\n"
+                 "  xgu_cli serve <page.html> [--port P] [--seconds S] [--width W] [--height H]\n",
                  xgu_version());
 }
 
@@ -69,11 +85,11 @@ void logToConsole(void*, int level, const char* message) {
     }
 }
 
-bool initialize() {
+bool initialize(bool singleThreaded = true) {
     xgu_init_desc init{};
     init.struct_size = sizeof(init);
     init.log_fn = &logToConsole;
-    init.flags = XGU_INIT_SINGLE_THREADED;
+    init.flags = singleThreaded ? XGU_INIT_SINGLE_THREADED : 0u;
     if (xgu_initialize(&init) != XGU_OK) {
         std::fprintf(stderr, "xgu_initialize failed\n");
         return false;
@@ -517,7 +533,95 @@ int commandRender(int argc, char** argv) {
 
 } // namespace
 
+std::atomic<bool> g_stopServing{false};
+
+BOOL WINAPI onConsoleSignal(DWORD) {
+    g_stopServing.store(true);
+    return TRUE;
+}
+
+int commandServe(int argc, char** argv) {
+    std::string path;
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    int port = 9222;
+    double seconds = 0.0;
+    for (int i = 2; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--width" && i + 1 < argc) {
+            width = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--height" && i + 1 < argc) {
+            height = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--port" && i + 1 < argc) {
+            port = std::atoi(argv[++i]);
+        } else if (arg == "--seconds" && i + 1 < argc) {
+            seconds = std::atof(argv[++i]);
+        } else if (path.empty()) {
+            path = arg;
+        } else {
+            usage();
+            return 1;
+        }
+    }
+    if (path.empty() || width == 0 || height == 0 || port < 0 || port > 65535) {
+        usage();
+        return 1;
+    }
+    const std::filesystem::path full = std::filesystem::absolute(path);
+    const std::string uiRoot = full.parent_path().string();
+    const std::string fileName = full.filename().string();
+
+    // The same threading as in Unity: JavaScript on its own thread, this one
+    // ticking the frames.
+    if (!initialize(false)) {
+        return 4;
+    }
+    xgu_view_desc desc{};
+    desc.struct_size = sizeof(desc);
+    desc.width = width;
+    desc.height = height;
+    desc.device_pixel_ratio = 1.0f;
+    desc.format = XGU_FORMAT_RGBA8;
+    desc.provider = XGU_PROVIDER_CPU;
+    desc.ui_root = uiRoot.c_str();
+    desc.name = fileName.c_str();
+    const xgu_view_id view = xgu_view_create(&desc);
+    if (view == XGU_INVALID_VIEW || xgu_view_load(view, fileName.c_str()) != XGU_OK) {
+        std::fprintf(stderr, "cannot load %s\n", full.string().c_str());
+        return 5;
+    }
+    if (xgu_devtools_start(static_cast<uint16_t>(port)) != XGU_OK) {
+        xgu_shutdown();
+        return 6;
+    }
+    SetConsoleCtrlHandler(&onConsoleSignal, TRUE);
+    std::printf("DevTools: chrome://inspect, or open devtools://devtools/bundled/js_app.html?v8only=true&ws=127.0.0.1:%u/devtools/page/%llu\n",
+                static_cast<unsigned>(xgu_devtools_port()), static_cast<unsigned long long>(view));
+    std::fflush(stdout);
+
+    const auto start = std::chrono::steady_clock::now();
+    while (!g_stopServing.load()) {
+        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (seconds > 0.0 && elapsed >= seconds) {
+            break;
+        }
+        xgu_tick(elapsed);
+        // Nothing shows the frames; taking them keeps the CPU provider going.
+        const void* pixels = nullptr;
+        uint32_t size = 0, w = 0, h = 0;
+        if (xgu_view_acquire_pixels(view, &pixels, &size, &w, &h, nullptr)) {
+            xgu_view_release_pixels(view);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+    xgu_shutdown();
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 2 && std::strcmp(argv[1], "serve") == 0) {
+        return commandServe(argc, argv);
+    }
     if (argc >= 2 && std::strcmp(argv[1], "js") == 0) {
         return commandJs(argc, argv);
     }

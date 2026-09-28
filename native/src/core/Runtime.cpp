@@ -1,5 +1,7 @@
 #include "core/Runtime.h"
 
+#include "devtools/DevToolsHub.h"
+
 #include "dom/Document.h"
 #include "js/v8/V8Platform.h"
 #include "js/v8/V8Runtime.h"
@@ -31,6 +33,13 @@ bool Runtime::initialize(const RuntimeInitDesc& desc) {
     desc_ = desc;
     render::registerImageCodecs();
     thread_.start(desc.singleThreaded);
+    // DevTools messages go to the runtime thread; the single-threaded runtime
+    // picks them up in tick() instead, never on the server's own thread.
+    if (desc.singleThreaded) {
+        devtools::DevToolsHub::instance().configure(nullptr);
+    } else {
+        devtools::DevToolsHub::instance().configure([this](std::function<void()> task) { thread_.post(std::move(task)); });
+    }
     // Initialise V8 eagerly on the runtime thread so failures show up at start-up.
     const std::string dataDir = desc.dataDir;
     thread_.post([dataDir] { js::V8Platform::instance().ensureInitialized(dataDir); });
@@ -44,6 +53,8 @@ void Runtime::shutdown() {
     if (!initialized_) {
         return;
     }
+    // First, so a script stopped at a breakpoint lets the runtime thread go.
+    devtools::DevToolsHub::instance().shutdown();
     destroyAllViews();
     thread_.stop(); // drains the posted view disposals
     initialized_ = false;
@@ -65,6 +76,7 @@ void Runtime::disposeView(std::unique_ptr<View> view) {
     }
     view->setState(ViewState::Destroyed);
     view->disposeJavaScript();
+    devtools::DevToolsHub::instance().forgetTarget(view->id());
     render_->destroyView(std::move(view));
 }
 
@@ -266,6 +278,9 @@ void Runtime::tick(double timeSeconds) {
 }
 
 void Runtime::onTick(double timeSeconds) {
+    if (devtools::DevToolsHub::instance().drainsOnTick()) {
+        devtools::DevToolsHub::instance().drainAll();
+    }
     std::vector<ViewId> ids;
     views_.forEach([&ids](ViewId id, View&) { ids.push_back(id); });
     for (ViewId id : ids) {

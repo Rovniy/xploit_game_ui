@@ -85,6 +85,25 @@ struct BoxShadow {
     }
 };
 
+// One text-shadow layer. Unlike box-shadow there is no spread and no inset.
+struct TextShadow {
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
+    float blur = 0.0f;
+    Color color = Color::black();
+    // No colour was given: the shadow takes the `color` of whatever text it is
+    // painted under, which differs from element to element as it is inherited.
+    bool currentColor = true;
+
+    bool operator==(const TextShadow& other) const {
+        return offsetX == other.offsetX && offsetY == other.offsetY && blur == other.blur && color == other.color &&
+               currentColor == other.currentColor;
+    }
+    bool operator!=(const TextShadow& other) const { return !(*this == other); }
+
+    Color resolvedColor(const Color& textColor) const { return currentColor ? textColor : color; }
+};
+
 // 2D affine transform as [a c e; b d f]; identity when `identity` is true.
 struct Transform {
     float a = 1.0f, b = 0.0f, c = 0.0f, d = 1.0f, e = 0.0f, f = 0.0f;
@@ -177,6 +196,8 @@ struct StyleValues {
     TextAlign textAlign = TextAlign::Start;
     uint8_t textDecorationLine = kDecorationNone;
     Color textDecorationColor = Color::black();
+    // Painted in list order from the top: the first shadow is the topmost one.
+    std::vector<TextShadow> textShadow;
     TextTransform textTransform = TextTransform::None;
     css::WhiteSpace whiteSpace = css::WhiteSpace::Normal;
     css::TextOverflow textOverflow = css::TextOverflow::Clip;

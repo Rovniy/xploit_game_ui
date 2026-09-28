@@ -187,6 +187,25 @@ void Painter::trackDamage(SkCanvas& canvas, LayoutBox& box) {
         shape.offset(shadow.offsetX, shadow.offsetY);
         local.join(shape);
     }
+    // Text shadows reach past the glyphs, which may reach past the box. The text
+    // sits in anonymous children that have no element and so are never dirty
+    // themselves: the element they belong to has to cover their shadows.
+    const auto joinTextShadows = [&](const LayoutBox& textBox) {
+        const text::InlineContent* content = textBox.inlineContent();
+        if (!content) {
+            return;
+        }
+        const text::InlineContent::Outsets outsets = content->shadowOutsets();
+        const SkRect border = toSkRect(textBox.borderBox());
+        local.join(SkRect::MakeLTRB(border.left() - outsets.left, border.top() - outsets.top,
+                                    border.right() + outsets.right, border.bottom() + outsets.bottom));
+    };
+    joinTextShadows(box);
+    for (const std::unique_ptr<LayoutBox>& child : box.children()) {
+        if (child->kind() == layout::BoxKind::InlineContext) {
+            joinTextShadows(*child);
+        }
+    }
 
     // The canvas already carries the device scale, every ancestor transform and
     // every clip, so mapping through it gives exactly where this lands.

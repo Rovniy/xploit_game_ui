@@ -8,6 +8,7 @@
 | Runtime thread | `xploit_game_ui.dll`, one per process | Per view, per frame: incoming messages → input → DOM events → timers and `requestAnimationFrame` → V8 microtask checkpoint → style → layout → paint → publish a `DisplayList` | Calling the Unity API; touching `GrDirectContext` |
 | Unity submission thread | Unity (plugin event `XGU_EVT_PAINT`, mode `kUnityD3D12GraphicsQueueAccess_Allow`) | Creates `GrDirectContext` lazily, replays the `SkPicture` into the surface, `flush(kPresent)`, `submit`, and releases deferred GPU resources once the frame fence passes | Anything other than Skia GPU work and D3D12 |
 | Worker pool | the runtime | Image decoding (`SkCodec` → raster `SkImage`) | Touching the DOM |
+| DevTools server | `DevToolsServer`, only while started | Accepts on 127.0.0.1, parses HTTP and WebSocket frames, queues protocol messages in `DevToolsHub`, and writes what the inspectors send back | Entering an isolate; everything it receives is handled on the runtime thread |
 
 The "JavaScript thread" is the runtime thread: the DOM API has to be synchronous from script, so the V8 isolate — one per view — is only ever entered there.
 
@@ -17,6 +18,12 @@ The "JavaScript thread" is the runtime thread: the DOM API has to be synchronous
 - **Runtime → main:** `BridgeMessage` (Emit/Call/Log/Lifecycle). The queue is capped at 10k messages; on overflow the oldest `Emit` and `Log` messages are dropped, never `Call` or `Reply`.
 - **Runtime → submission:** `DisplayList{ sk_sp<SkPicture>, dirtyRect, frameId }`, an immutable object in a last-one-wins slot, one slot per view. `SkPicture` is reference counted, so a frame that is superseded before it is shown costs nothing to drop.
 - **Submission → main:** status flags only (`xgu_view_status`: `TEXTURE_READY`, `TEXTURE_RECREATED`, `DEVICE_LOST`, `PIXELS_READY`) plus the native texture pointer, which C# polls in `Update()`.
+
+- **DevTools → runtime:** protocol messages, queued in `DevToolsHub` and handed to the runtime thread with a posted task; the single-threaded runtime takes them on `tick`. **Runtime → DevTools:** inspector responses, written to the socket from the runtime thread, or queued for `xgu_devtools_poll` for the host's own session.
+
+### A script stopped at a breakpoint
+
+V8 calls `Inspector::runMessageLoopOnPause` on the runtime thread, which then waits in `DevToolsHub::waitAndDrain` for that view's DevTools messages instead of its task loop. Until the script resumes, no view is ticked and no other task runs; the Unity main thread is not affected, because it never waits for the runtime thread. Closing the last debugging session resumes the script, which is why `xgu_devtools_stop` comes before destroying views (quitting, domain reload), and `xgu_shutdown` stops DevTools first.
 
 Nothing else crosses: DOM nodes, `ComputedStyle`, `LayoutBox` and every V8 object live on the runtime thread alone.
 

@@ -223,6 +223,41 @@ TEST_F(PaintTest, TextIsPaintedInsideItsBlock) {
     EXPECT_EQ(frame.inkIn(0, 50, 200, 70, kTransparent), 0u) << "no ink below the block";
 }
 
+TEST_F(PaintTest, TextShadowIsPaintedAtItsOffset) {
+    // The shadow is pushed 40px down, out of the box, where nothing else paints.
+    const Frame frame = paint(R"html(<div style="position:absolute;left:10px;top:10px;width:120px;height:30px;
+                                             color:#ff0000;font-size:20px;text-shadow:0 40px 0 #0000ff">Hi</div>)html");
+    uint32_t shadowInk = 0;
+    for (uint32_t y = 40; y < 90; ++y) {
+        for (uint32_t x = 0; x < 200; ++x) {
+            const Pixel pixel = frame.at(x, y);
+            if (pixel.a > 0) {
+                EXPECT_EQ(pixel.r, 0) << "only the shadow colour down there, at " << x << "," << y;
+                ++shadowInk;
+            }
+        }
+    }
+    EXPECT_GT(shadowInk, 20u) << "the shadow glyphs were rasterised";
+    EXPECT_GT(frame.inkIn(10, 10, 120, 30, kTransparent), 20u) << "the text itself is still there";
+}
+
+TEST_F(PaintTest, FirstTextShadowIsOnTop) {
+    const Frame frame = paint(R"html(<div style="position:absolute;left:10px;top:10px;width:120px;height:30px;
+                                             color:#ff0000;font-size:20px;
+                                             text-shadow:0 40px 0 #00ff00, 0 40px 0 #0000ff">Hi</div>)html");
+    uint32_t green = 0;
+    for (uint32_t y = 40; y < 90; ++y) {
+        for (uint32_t x = 0; x < 200; ++x) {
+            const Pixel pixel = frame.at(x, y);
+            if (pixel.a == 255) {
+                EXPECT_EQ(pixel.b, 0) << "the second shadow is covered by the first, at " << x << "," << y;
+                green += pixel.g == 255 ? 1u : 0u;
+            }
+        }
+    }
+    EXPECT_GT(green, 10u);
+}
+
 TEST_F(PaintTest, TextAlignCentresInsideTheFinalBoxWidth) {
     // Regression: the paragraph used to keep the width of a Yoga trial measure
     // pass, so centred text was drawn far to the right of its box.

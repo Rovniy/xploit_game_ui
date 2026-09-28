@@ -45,6 +45,7 @@ lays out and paints.
 | `font-family`, `font-size`, `font-weight`, `font-style` | done | system fonts through DirectWrite, plus `fonts/` under the UI root and `@font-face` |
 | `line-height` | done | a number, a length, or `normal` |
 | `text-align`, `text-decoration`, `text-transform`, `letter-spacing` | done | |
+| `text-shadow` | done | several shadows separated by commas, the first on top; offsets, blur and colour (`currentColor` when omitted, taken from the text it is under); inherited |
 | `white-space` | done | normal, nowrap, pre, pre-wrap, pre-line |
 | `text-overflow: ellipsis` | done | with `nowrap` and `overflow: hidden` |
 | `transform`, `transform-origin` | done | translate/scale/rotate/skew/matrix; visual only, layout is unaffected |
@@ -97,6 +98,8 @@ does in a browser: `margin`, `padding`, `inset`, `border`,
 | `addEventListener`/`removeEventListener`/`dispatchEvent`, `new Event(type, init)`, `Event` (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`, `target`, `currentTarget`, `eventPhase`), `MouseEvent`, `KeyboardEvent`, `InputEvent`, `FocusEvent`, `WheelEvent`, the `capture` and `once` options | done |
 | `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `requestAnimationFrame`/`cancelAnimationFrame`, `performance.now` | done |
 | `console.log/warn/error/info/debug` → the Unity Console | done |
+| The rest of `console` (`table`, `group`, `time`, `count`, `assert`, `dir`, `trace`) | done (V8's own; its text reaches the Unity Console) |
+| Chrome DevTools: Console, Sources (breakpoints), Profiler, Memory | done (`WebDevTools`, `chrome://inspect`); no Elements or Styles panel |
 | `element.focus()`, `element.blur()`, `document.activeElement` | done |
 | `input`/`textarea`: `value`, `selectionStart`, `selectionEnd`, `setSelectionRange`, `select()` | done |
 | `Unity.emit`, `Unity.on`, `Unity.off`, `Unity.call` (returns a Promise) | done |
@@ -160,3 +163,4 @@ does in a browser: `margin`, `padding`, `inset`, `border`,
 31. `transform` is interpolated element-wise on the matrix rather than by decomposing into translation, rotation and scale. For translations, scaling and small rotations the difference is invisible; for a rotation of more than 180° the result differs from a browser's.
 32. Lengths in different units (`10px` → `50%`) are not mixed: the value switches at the midpoint of the transition. `steps()` easing is not supported.
 33. A gradient is one layer, above `background-color` and below `background-image`. `linear-gradient` supports an angle or `to <side>`, and `radial-gradient` an optional `circle`/`ellipse`. Size and position keywords on `radial-gradient` (`closest-side`, `at 30% 70%`) are ignored: a circle is drawn from the centre to the farthest corner. Colour stops are positioned in per cent only, and `conic-gradient` and repeating gradients are not supported.
+34. `text-shadow` is not animatable: a transition or keyframes on it switch the value at once. `box-shadow` still takes a single shadow: a comma-separated list keeps only the first one.

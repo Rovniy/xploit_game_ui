@@ -110,7 +110,9 @@ floor rather than a best case:
 
 3. **Add the view.** Put a `RawImage` on a Canvas, add an `HtmlView` component
    next to it, and set *Path* to `UI/HUD/index.html`. Add `WebInput` if the page
-   should respond to the mouse and the keyboard.
+   should respond to the mouse and the keyboard. To put the page on a screen in
+   the world instead, add `HtmlView` to a mesh (a Quad, say) — see
+   [On a mesh](unity/Packages/com.xploit.game_ui/README.md#on-a-mesh).
 
 4. **Talk to it** from C#, with the four calls shown above: `Load`, `On`,
    `Send`, `RegisterFunction`.
@@ -168,8 +170,11 @@ Being explicit about this is more useful than a longer feature list.
   first candidate for the next round.
 - **No `::before`/`::after` or `:nth-child()`.**
 - **No `<table>`, `<select>`, `<canvas>`, `<video>` or `<iframe>`.**
-- **No world-space UI yet.** The output is a texture, so putting it on a quad
-  works; routing input through a raycast is not written.
+- **Chrome DevTools for JavaScript only.** Console, breakpoints, profiler and
+  memory work through V8's inspector; there is no Elements or Styles panel.
+- **World-space UI on a mesh** maps the pointer through the mesh UVs, so it
+  follows the texture on any mesh with a non-convex `MeshCollider`; with any
+  other collider the object is treated as a flat quad.
 - **Windows x64 with Direct3D 12 only** at present. On any other renderer the
   package falls back to a CPU rasteriser that uploads pixels, which works but
   costs more.
@@ -254,6 +259,7 @@ tools/    build.ps1, package.ps1, fetch-unity-headers.ps1
 | [HTML / CSS / DOM support matrix](docs/css-support.md) | what works, and every documented deviation from a browser |
 | [Architecture](docs/architecture.md) | layers, the frame pipeline, the replaceable interfaces |
 | [Threading model](docs/threading.md) | which thread does what, and what crosses between them |
+| [Debugging a page](docs/devtools.md) | the JS Console window and Chrome DevTools: how to open them and what they can do |
 | [ADR-0001](docs/ADR-0001-stack.md) | why this stack, what was rejected, and the spike results |
 | [Third-party notices](docs/THIRD-PARTY-NOTICES.md) | every dependency with its licence |
 

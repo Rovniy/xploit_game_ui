@@ -352,6 +352,33 @@ XGU_API uint64_t xgu_view_bridge_dropped(xgu_view_id view);
 XGU_API xgu_status xgu_view_execute_js(xgu_view_id view, const char* source, const char* origin);
 
 XGU_API xgu_status xgu_view_set_paused(xgu_view_id view, bool paused);
+
+/* -------------------------------------------------------------------------- */
+/* DevTools                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/* Starts the Chrome DevTools endpoint on 127.0.0.1:`port` (0 picks a free
+   port). Every view with JavaScript is a target in chrome://inspect, with
+   Console, Sources (breakpoints), Profiler and Memory. While a script is
+   stopped at a breakpoint its view does not update, and the rest of the host
+   keeps running. Requests whose Host is not the loopback address are refused.
+   Fails with XGU_ERR_INTERNAL when the port cannot be bound. */
+XGU_API xgu_status xgu_devtools_start(uint16_t port);
+XGU_API void xgu_devtools_stop(void);
+/* The port in use, or 0 while the endpoint is not running. */
+XGU_API uint16_t xgu_devtools_port(void);
+
+/* Writes the devtools:// URL that opens DevTools on this view into `buffer`
+   (NUL-terminated, truncated to `capacity`). Returns the length the whole URL
+   needs, without the NUL; 0 while the endpoint is not running. */
+XGU_API uint32_t xgu_view_devtools_url(xgu_view_id view, char* buffer, uint32_t capacity);
+
+/* The host's own DevTools session on the view, which works without the
+   endpoint: sends one Chrome DevTools protocol message (JSON) ... */
+XGU_API xgu_status xgu_view_devtools_send(xgu_view_id view, const char* message);
+/* ... and takes the next response or notification of any view's host session.
+   `*out_message` stays valid until the next call. */
+XGU_API bool xgu_devtools_poll(xgu_view_id* out_view, const char** out_message);
 XGU_API xgu_view_state xgu_view_get_state(xgu_view_id view);
 
 /* Destroys every view; call from AssemblyReloadEvents.beforeAssemblyReload. */

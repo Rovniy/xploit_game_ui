@@ -86,6 +86,16 @@ public:
     // Updates the reserved sizes (the boxes are measured by the layout engine).
     void setPlaceholderSizes(const std::vector<InlinePlaceholder>& sizes);
 
+    // How far the text shadows of any run can reach past the glyphs, in CSS px;
+    // painting has to damage that much more than the box itself.
+    struct Outsets {
+        float left = 0.0f;
+        float top = 0.0f;
+        float right = 0.0f;
+        float bottom = 0.0f;
+    };
+    Outsets shadowOutsets() const;
+
     // Invalidates the shaped paragraph (text or style changed).
     void invalidate();
 

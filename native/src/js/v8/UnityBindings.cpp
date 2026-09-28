@@ -292,7 +292,7 @@ void UnityBindings::deliver(const BridgeMessage& message) {
     case BridgeMessageKind::Call:
         break; // page to host only
     }
-    isolate_->PerformMicrotaskCheckpoint();
+    runtime_.performMicrotaskCheckpoint();
 }
 
 } // namespace xgu::js
