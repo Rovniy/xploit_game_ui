@@ -127,6 +127,10 @@ bool Node::removeChild(Node& child) {
         return false;
     }
     RefPtr<Node> protector(&child);
+    // Drop input references while the entire ancestor chain is still alive.
+    if (Document* doc = child.document_; doc && doc->focusController()) {
+        doc->focusController()->subtreeWillDetach(child);
+    }
     const size_t index = child.indexInParent_;
     children_.erase(children_.begin() + static_cast<ptrdiff_t>(index));
     child.parent_ = nullptr;

@@ -74,6 +74,9 @@ public:
     // Drops hover, active and focus. Called when the document is replaced.
     void reset();
 
+    // Clears interaction references before a DOM subtree loses its parent/owner.
+    void subtreeWillDetach(dom::Node& subtree) override;
+
     // dom::FocusController: moves focus, firing blur/focusout and focus/focusin.
     // A null element just clears the focus.
     bool requestFocus(dom::Element* element) override { return setFocus(element); }

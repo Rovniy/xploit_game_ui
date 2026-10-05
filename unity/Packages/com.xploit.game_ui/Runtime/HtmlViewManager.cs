@@ -16,12 +16,31 @@ namespace Xploit.GameUI
     {
         static HtmlViewManager s_instance;
         static bool s_quitting;
+        const string RuntimeDataDirectoryName = "XploitGameUI";
 
-        readonly List<HtmlView> m_views = new List<HtmlView>();
-        CommandBuffer m_commandBuffer;
-        IntPtr m_renderEventFunc;
-        int m_eventBase;
-        bool m_nativeReady;
+        // Runtime state only. [NonSerialized] because the editor serialises a
+        // MonoBehaviour's private fields across a domain reload, and a manager
+        // brought back with m_nativeReady but without its CommandBuffer is what
+        // used to throw from IssueGc.
+        [NonSerialized] readonly List<HtmlView> m_views = new List<HtmlView>();
+        [NonSerialized] CommandBuffer m_commandBuffer;
+        [NonSerialized] IntPtr m_renderEventFunc;
+        [NonSerialized] int m_eventBase;
+        [NonSerialized] bool m_nativeReady;
+
+        // With domain reload off (Enter Play Mode Options) statics survive from
+        // one Play Mode session to the next: without this, s_quitting stayed true
+        // and the second session never got a manager.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics()
+        {
+            s_instance = null;
+            s_quitting = false;
+        }
+
+        // Only the current manager does anything. Any other one is a leftover and
+        // removes itself.
+        bool IsCurrent => s_instance == this;
 
         /// <summary>Gets (and lazily creates) the manager. Returns null while the application is quitting.</summary>
         public static HtmlViewManager Instance
@@ -30,7 +49,15 @@ namespace Xploit.GameUI
             {
                 if (s_instance == null && !s_quitting)
                 {
-                    var go = new GameObject("[xploit_game_ui]") { hideFlags = HideFlags.HideAndDontSave };
+                    // Not DontSave while playing: the editor keeps DontSave objects
+                    // after Play Mode ends, and every session used to leave one
+                    // manager behind. DontDestroyOnLoad (in Awake) goes with Play Mode.
+                    var go = new GameObject("[xploit_game_ui]")
+                    {
+                        hideFlags = Application.isPlaying
+                            ? HideFlags.HideInHierarchy | HideFlags.NotEditable
+                            : HideFlags.HideAndDontSave,
+                    };
                     s_instance = go.AddComponent<HtmlViewManager>();
                 }
                 return s_instance;
@@ -57,7 +84,10 @@ namespace Xploit.GameUI
                 return;
             }
             s_instance = this;
-            DontDestroyOnLoad(gameObject);
+            if (Application.isPlaying)
+            {
+                DontDestroyOnLoad(gameObject);
+            }
             InitializeNative();
 #if UNITY_EDITOR
             UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
@@ -73,7 +103,9 @@ namespace Xploit.GameUI
             var desc = new Native.InitDesc
             {
                 struct_size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.InitDesc>(),
-                data_dir = Native.Utf8(Application.persistentDataPath),
+                // StreamingAssets data ships with the player; persistentDataPath is empty on first launch.
+                // Native V8 loading also falls back to the plugin and executable directories.
+                data_dir = Native.Utf8(System.IO.Path.Combine(Application.streamingAssetsPath, RuntimeDataDirectoryName)),
             };
             try
             {
@@ -169,6 +201,11 @@ namespace Xploit.GameUI
 
         void LateUpdate()
         {
+            if (!IsCurrent)
+            {
+                Destroy(gameObject);
+                return;
+            }
             if (!m_nativeReady)
             {
                 return;
@@ -240,7 +277,7 @@ namespace Xploit.GameUI
         /// <summary>Asks the graphics backend to paint the view's pending frame (submission thread).</summary>
         internal void IssuePaint(ulong handle)
         {
-            if (!m_nativeReady || handle == Native.InvalidView)
+            if (!m_nativeReady || m_commandBuffer == null || handle == Native.InvalidView)
             {
                 return;
             }
@@ -252,7 +289,7 @@ namespace Xploit.GameUI
         /// <summary>Lets the native side release GPU resources of destroyed views once the GPU is done with them.</summary>
         internal void IssueGc()
         {
-            if (!m_nativeReady)
+            if (!m_nativeReady || m_commandBuffer == null)
             {
                 return;
             }
@@ -263,6 +300,10 @@ namespace Xploit.GameUI
 
         void DestroyAllViews()
         {
+            if (!IsCurrent)
+            {
+                return; // a leftover: the views, and the runtime, are not its own
+            }
             if (m_nativeReady)
             {
                 // First: closing the DevTools sessions resumes a script stopped at
@@ -296,6 +337,10 @@ namespace Xploit.GameUI
 
         void OnApplicationQuit()
         {
+            if (!IsCurrent)
+            {
+                return;
+            }
             s_quitting = true;
             DestroyAllViews();
         }
@@ -305,6 +350,10 @@ namespace Xploit.GameUI
 #if UNITY_EDITOR
             UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
 #endif
+            if (!IsCurrent)
+            {
+                return;
+            }
             DestroyAllViews();
             if (m_nativeReady)
             {
@@ -313,10 +362,35 @@ namespace Xploit.GameUI
             }
             m_commandBuffer?.Release();
             m_commandBuffer = null;
-            if (s_instance == this)
+            m_nativeReady = false;
+            s_instance = null;
+        }
+
+#if UNITY_EDITOR
+        // Removes managers left over from earlier Play Mode sessions by versions
+        // that created them DontSave, on the way into Play Mode and out of it.
+        [UnityEditor.InitializeOnLoadMethod]
+        static void WatchPlayMode()
+        {
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        static void OnPlayModeStateChanged(UnityEditor.PlayModeStateChange change)
+        {
+            if (change != UnityEditor.PlayModeStateChange.ExitingEditMode &&
+                change != UnityEditor.PlayModeStateChange.EnteredEditMode)
             {
-                s_instance = null;
+                return;
+            }
+            foreach (var leftover in Resources.FindObjectsOfTypeAll<HtmlViewManager>())
+            {
+                if (leftover != null && leftover != s_instance && !UnityEditor.EditorUtility.IsPersistent(leftover))
+                {
+                    DestroyImmediate(leftover.gameObject);
+                }
             }
         }
+#endif
     }
 }

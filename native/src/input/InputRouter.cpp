@@ -86,7 +86,46 @@ Element* commonAncestor(Element* a, Element* b) {
 InputRouter::InputRouter(dom::Document& document, layout::LayoutEngine& layout)
     : document_(document), layout_(layout) {}
 
-InputRouter::~InputRouter() = default;
+InputRouter::~InputRouter() {
+    reset();
+    if (document_.focusController() == this) {
+        document_.setFocusController(nullptr);
+    }
+    if (document_.elementStateProvider() == this) {
+        document_.setElementStateProvider(nullptr);
+    }
+}
+
+void InputRouter::subtreeWillDetach(dom::Node& subtree) {
+    const auto isRemoved = [&subtree](Element* element) {
+        return element && subtree.contains(*element);
+    };
+    // Removal is not a blur/change dispatch: script must not re-enter removeChild.
+    // Clear ancestor states before detachment, including :focus-within outside it.
+    if (isRemoved(focused_)) {
+        for (Element* element : chainOf(focused_)) {
+            element->setState(Element::kStateFocus | Element::kStateFocusWithin, false);
+        }
+        focused_ = nullptr;
+    }
+    if (isRemoved(hovered_)) {
+        for (Element* element : chainOf(hovered_)) {
+            element->setState(Element::kStateHover, false);
+        }
+        hovered_ = nullptr;
+    }
+    if (std::any_of(activeChain_.begin(), activeChain_.end(), isRemoved)) {
+        setActiveChain(nullptr);
+    }
+    if (isRemoved(pressTarget_)) {
+        pressTarget_ = nullptr;
+        clickCount_ = 0;
+        lastClickTime_ = -1.0;
+    }
+    if (isRemoved(draggingIn_)) {
+        draggingIn_ = nullptr;
+    }
+}
 
 void InputRouter::reset() {
     for (Element* element : chainOf(hovered_)) {
@@ -157,6 +196,9 @@ Element* InputRouter::focusableFor(Element* element) {
 }
 
 bool InputRouter::setFocus(Element* element) {
+    if (element && !element->isConnected()) {
+        return false;
+    }
     if (element == focused_) {
         return false;
     }
@@ -186,9 +228,11 @@ bool InputRouter::setFocus(Element* element) {
         fire(*previous, dom::eventNames::blur(), dom::EventCategory::Focus, false, false, synthetic, element);
         fire(*previous, dom::eventNames::focusout(), dom::EventCategory::Focus, true, false, synthetic, element);
     }
-    if (element) {
+    if (element && focused_ == element && element->isConnected()) {
         fire(*element, dom::eventNames::focus(), dom::EventCategory::Focus, false, false, synthetic, previous);
-        fire(*element, dom::eventNames::focusin(), dom::EventCategory::Focus, true, false, synthetic, previous);
+        if (focused_ == element && element->isConnected()) {
+            fire(*element, dom::eventNames::focusin(), dom::EventCategory::Focus, true, false, synthetic, previous);
+        }
     }
     return true;
 }
@@ -203,6 +247,11 @@ bool InputRouter::updateHover(Element* target, const InputEvent& event) {
 
     const std::vector<Element*> oldChain = chainOf(previous);
     const std::vector<Element*> newChain = chainOf(target);
+    // Listeners can remove whole ancestors, not just the event target.
+    std::vector<RefPtr<Element>> keepChains;
+    keepChains.reserve(oldChain.size() + newChain.size());
+    for (Element* element : oldChain) keepChains.emplace_back(element);
+    for (Element* element : newChain) keepChains.emplace_back(element);
     hovered_ = target;
 
     for (Element* element : oldChain) {
@@ -253,6 +302,7 @@ bool InputRouter::setActiveChain(Element* target) {
 
 bool InputRouter::handleMouseMove(const InputEvent& event) {
     Element* target = hitTestAt(event.x, event.y);
+    RefPtr<Element> keepTarget(target);
     bool changed = updateHover(target, event);
     if (draggingIn_) {
         placeCaretAt(*draggingIn_, event.x, event.y, true);
@@ -390,7 +440,11 @@ bool InputRouter::editWithKey(Element& element, const InputEvent& event) {
 
 bool InputRouter::handleMouseDown(const InputEvent& event) {
     Element* target = hitTestAt(event.x, event.y);
+    RefPtr<Element> keepTarget(target);
     updateHover(target, event);
+    if (target && !target->isConnected()) {
+        return true;
+    }
     pressTarget_ = target;
     setActiveChain(target);
 
@@ -398,11 +452,13 @@ bool InputRouter::handleMouseDown(const InputEvent& event) {
     if (target) {
         defaultAllowed = fire(*target, dom::eventNames::mousedown(), dom::EventCategory::Mouse, true, true, event);
     }
-    if (defaultAllowed && event.button == dom::kMouseButtonLeft) {
+    if (defaultAllowed && event.button == dom::kMouseButtonLeft && (!target || target->isConnected())) {
         // Focus follows the press, and lands on the nearest focusable ancestor.
         Element* focusTarget = focusableFor(target);
+        RefPtr<Element> keepFocusTarget(focusTarget);
         setFocus(focusTarget);
-        if (focusTarget && focusTarget->textControl() && focusTarget->textControl()->isEditable()) {
+        if (focusTarget && focused_ == focusTarget && focusTarget->isConnected() &&
+            focusTarget->textControl() && focusTarget->textControl()->isEditable()) {
             placeCaretAt(*focusTarget, event.x, event.y, event.modifiers.shift);
             focusTarget->markDirty(dom::kDirtyPaintSelf);
             draggingIn_ = focusTarget;
@@ -413,6 +469,7 @@ bool InputRouter::handleMouseDown(const InputEvent& event) {
 
 bool InputRouter::handleMouseUp(const InputEvent& event) {
     Element* target = hitTestAt(event.x, event.y);
+    RefPtr<Element> keepReleaseTarget(target);
     updateHover(target, event);
     setActiveChain(nullptr);
     draggingIn_ = nullptr;
@@ -498,9 +555,10 @@ bool InputRouter::handleKey(const InputEvent& event) {
     if (!target) {
         return false;
     }
+    RefPtr<Element> keepTarget(target);
     const Atom& type = event.type == InputEventType::KeyDown ? dom::eventNames::keydown() : dom::eventNames::keyup();
     const bool defaultAllowed = fire(*target, type, dom::EventCategory::Keyboard, true, true, event);
-    if (defaultAllowed && event.type == InputEventType::KeyDown && target->textControl()) {
+    if (defaultAllowed && target->isConnected() && event.type == InputEventType::KeyDown && target->textControl()) {
         editWithKey(*target, event);
     }
     return true;
@@ -511,8 +569,10 @@ bool InputRouter::handleTextInput(const InputEvent& event) {
     if (!target || event.text.empty()) {
         return false;
     }
-    if (!fire(*target, dom::eventNames::beforeinput(), dom::EventCategory::Input, true, true, event)) {
-        return true; // the page cancelled the insertion
+    RefPtr<Element> keepTarget(target);
+    if (!fire(*target, dom::eventNames::beforeinput(), dom::EventCategory::Input, true, true, event) ||
+        !target->isConnected()) {
+        return true; // the page cancelled the insertion or removed the control
     }
     dom::TextControl* control = target->textControl();
     if (control && control->isEditable()) {

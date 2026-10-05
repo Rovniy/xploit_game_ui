@@ -52,6 +52,14 @@ publish.
 
    Close the editor first — it holds the DLL open.
 
+   The EditMode tests enter and leave Play Mode, which the test runner does not
+   do in batch mode, so they run in a normal editor that quits when done:
+
+   ```powershell
+   & "<Unity>\Editor\Unity.exe" -force-d3d12 -projectPath .\unity\Sandbox `
+       -runTests -testPlatform EditMode -testResults .\build\test-editmode.xml -logFile .\build\editor-editmode.log
+   ```
+
 4. **Install the tarball into a scratch project** and open the HUD sample. A
    tarball that has never been installed is a tarball that has never been tested.
 

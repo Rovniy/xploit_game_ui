@@ -33,6 +33,14 @@ minor release may contain a breaking change; those are called out explicitly.
 
 ### Fixed
 
+- Stopping Play Mode could log a burst of `NullReferenceException` from
+  `HtmlViewManager.IssueGc`. The manager was created `DontSave`, which the editor
+  keeps after Play Mode ends, so every session left one behind; the leftovers
+  also ran `LateUpdate` in later sessions. It now goes with Play Mode, leftovers
+  from earlier versions are removed, and a manager that is not the current one
+  does nothing.
+- With domain reload off (*Enter Play Mode Options*), the second Play Mode
+  session got no manager at all and every `HtmlView` disabled itself.
 - "Unhandled promise rejection" is reported once the microtasks have run, as in
   a browser, not the moment a promise rejects: a handler attached later in the
   same turn (an awaiting caller, the DevTools console) no longer produces a

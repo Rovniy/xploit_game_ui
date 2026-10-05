@@ -4,6 +4,11 @@
 // xgu_view_send_input -> hit test -> element state -> event dispatch -> JS.
 
 #include "core/Runtime.h"
+#include "css/StyleEngine.h"
+#include "dom/Document.h"
+#include "html/LexborHtmlParser.h"
+#include "input/InputRouter.h"
+#include "layout/LayoutEngine.h"
 #include "render/RenderSystem.h"
 
 #include <xploit_game_ui/xgu.h>
@@ -137,6 +142,84 @@ protected:
 };
 
 } // namespace
+
+// No JS wrappers retain removed nodes here: removal releases their last owner.
+TEST(InputRouterLifetime, RemovingPressedAndFocusedSubtreeClearsInteractionReferences) {
+    using namespace xgu;
+    constexpr int kRemovalCycles = 64;
+    constexpr float kViewportSize = 200.0f;
+    constexpr float kPointerPosition = 20.0f;
+    auto document = makeRef<dom::Document>();
+    html::LexborHtmlParser parser;
+    ASSERT_TRUE(parser.parseDocument("<html><body></body></html>", *document));
+    css::StyleEngine styles(*document);
+    styles.addStyleSheet("html,body{margin:0;padding:0} button,input{width:100px;height:40px}");
+    layout::LayoutEngine layout(*document);
+    input::InputRouter router(*document, layout);
+    document->setFocusController(&router);
+    document->setElementStateProvider(&router);
+
+    for (int cycle = 0; cycle < kRemovalCycles; ++cycle) {
+        auto panel = document->createElement("div");
+        auto control = document->createElement(cycle % 2 == 0 ? "button" : "input");
+        dom::Element* removedControl = control.get();
+        ASSERT_TRUE(panel->appendChild(*control));
+        ASSERT_TRUE(document->body()->appendChild(*panel));
+        styles.recalcStyles(kViewportSize, kViewportSize);
+        layout.layout(kViewportSize, kViewportSize);
+        input::InputEvent press;
+        press.type = input::InputEventType::MouseDown;
+        press.button = dom::kMouseButtonLeft;
+        press.buttons = dom::kMouseButtonsLeft;
+        press.x = press.y = kPointerPosition;
+        ASSERT_TRUE(router.handle(press));
+        ASSERT_EQ(router.focusedElement(), removedControl);
+        ASSERT_EQ(router.hoveredElement(), removedControl);
+        ASSERT_TRUE(router.isActive(*removedControl));
+        if (cycle % 2 != 0) {
+            input::InputEvent typed;
+            typed.type = input::InputEventType::TextInput;
+            typed.text = "edited";
+            ASSERT_TRUE(router.handle(typed));
+        }
+        control.reset();
+        panel.reset();
+        document->body()->removeAllChildren();
+        EXPECT_EQ(router.focusedElement(), nullptr);
+        EXPECT_EQ(router.hoveredElement(), nullptr);
+        EXPECT_FALSE(router.isFocusWithin(*document->body()));
+        EXPECT_FALSE(router.isHovered(*document->body()));
+        EXPECT_FALSE(router.isActive(*document->body()));
+        styles.recalcStyles(kViewportSize, kViewportSize);
+        layout.layout(kViewportSize, kViewportSize);
+        // Exercise the old press/drag references after the node was freed.
+        input::InputEvent move = press;
+        move.type = input::InputEventType::MouseMove;
+        router.handle(move);
+        input::InputEvent release = press;
+        release.type = input::InputEventType::MouseUp;
+        release.buttons = 0;
+        router.handle(release);
+        router.reset();
+    }
+}
+
+TEST_F(InputTest, RemovingButtonDuringMouseDownDoesNotRestoreDetachedFocus) {
+    const xgu_view_id view = load(R"html(
+      <button id="button" style="position:absolute;left:20px;top:20px;width:100px;height:40px">CLICK</button>
+      <script>
+        var button = document.getElementById('button');
+        button.addEventListener('mousedown', function () {
+          button.parentNode.removeChild(button);
+        });
+        button.addEventListener('focus', function () { console.log('detached-focus'); });
+        button.addEventListener('click', function () { console.log('detached-click'); });
+      </script>)html");
+    click(view, 70.0f, 40.0f);
+    EXPECT_FALSE(logged("detached-focus"));
+    EXPECT_FALSE(logged("detached-click"));
+}
+
 
 // The stage's acceptance criterion: a mouse click from the host reaches a
 // listener registered in page script.
